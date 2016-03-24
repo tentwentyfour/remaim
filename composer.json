@@ -1,0 +1,13 @@
+{
+    "name": "1024/remaim",
+    "description": "Redmine to maniphest importer using the Conduit API",
+    "require": {
+        "kbsali/redmine-api": "~1.0"
+    },
+    "authors": [
+        {
+            "name": "David Raison",
+            "email": "david@tentwentyfour.lu"
+        }
+    ]
+}

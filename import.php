@@ -1,6 +1,29 @@
 <?php
 
+// There is a composer package for libphutil, but it's unofficial and not 100% compatible:
+// https://packagist.org/packages/mtrunkat/libphutil
 require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
+require_once 'vendor/autoload.php';
+
+// OK, the API treats APIKeys as usernames,
+// Client::prepareRequest() looks at isset(Password) and replaces it by a random string in the opposite case
+// It always sets CURLOPT_USERPWD though… Well, this is kind of a a limiation of our redmine setup too
+$redmine = new Redmine\Client('https://redmine.1024.lu', 'kwisatz', 'aSh0rterPasswordTT');
+// $redmine = new Redmine\Client('https://redmine.1024.lu', '4ff32c96a52dfe3c850b4cd22be33cfcce02cb54');
+
+// $projects = $redmine->project->all(['limit' => 100]);
+// var_dump($projects);
+
+// var_dump($argv);
+// Parse arguments here…
+
+$tasks = $redmine->issue->all(['project_id' => 93]);    // VM
+var_dump($tasks);
+
+exit;
+
+
+// phabrictor
 $api_token = "api-2tjdrldcrad5zv233ipsbjdvsctc";
 
 $results = [];
