@@ -2,7 +2,8 @@
     "name": "1024/remaim",
     "description": "Redmine to maniphest importer using the Conduit API",
     "require": {
-        "kbsali/redmine-api": "~1.0"
+        "kbsali/redmine-api": "~1.0",
+        "symfony/yaml": "~3.0"
     },
     "authors": [
         {

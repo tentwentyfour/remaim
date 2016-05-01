@@ -1,0 +1,7 @@
+redmine:
+    host: https://redmine.1024.lu
+    user: 
+    password: 
+phabricator:
+    host: https://cator.1024.lu
+    token: 
