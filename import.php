@@ -32,7 +32,7 @@ try {
 function representProject($project)
 {
     if (isset($project['parent'])) {
-        return sprintf("\t%s", representProject($project))
+        return sprintf("\t%s", representProject($project));
     } else {
         return sprintf("[%d]\t[%s]\n", $project['id'], $project['name']);
     }
@@ -44,7 +44,7 @@ function addToProject($container, $project)
         if ($key == $project['parent']['id']) {
             $slot[] = $project;
         } else {
-            return addToProject()
+            //return addToProject($container, ...)	should have finished this …
         }
         return $slot;
     }, $container, array_keys($container));
@@ -52,7 +52,9 @@ function addToProject($container, $project)
 
 // OK, the API treats APIKeys as usernames,
 // Client::prepareRequest() looks at isset(Password) and replaces it by a random string in the opposite case
-// It always sets CURLOPT_USERPWD though… Well, this is kind of a a limiation of our redmine setup too
+// $redmine = new Client('https://redmine.1024.lu', '4ff32c96a52dfe3c850b4cd22be33cfcce02cb54');
+// It always sets CURLOPT_USERPWD though… 
+// Well, this is kind of a a limiation of our redmine setup too because of basic Auth based on ldap!
 //
 // Read URL, token/password from config file?
 $redmine = new Client(
@@ -60,7 +62,14 @@ $redmine = new Client(
     $config['redmine']['user'],
     $config['redmine']['password']
 );
-// $redmine = new Client('https://redmine.1024.lu', '4ff32c96a52dfe3c850b4cd22be33cfcce02cb54');
+
+// DR: can we find another, simpler method for checking connection than this?
+// Unfortunately, the Client does not have a way of checking whether the connection was successfull,
+// since it never established a connection.
+$project_listing = $redmine->project->listing();
+if (empty($project_listing)) {
+	die("\n" . 'Your project list is empty or we were unable to connect to redmine. Check your credentials!' . "\n");
+}
 
 // First list available projects, then allow the user to select one
 $reply = $redmine->project->all(['limit' => 1024]);
@@ -69,7 +78,7 @@ $projects = $reply['projects'];
 
 $projects = array_reduce($projects, function ($container, $project) {
     if (isset($project['parent'])) {
-        $container = addToParent($container, $project);
+        $container = addToProject($container, $project);
     } else {
         $container[$project['id']] = $project;
     }
@@ -107,8 +116,8 @@ $priority_map = [
                         // Wishlist
 ];
 
-$conduit = new ConduitClient($config['phabricator']['host']);
-$conduit->setConduitToken($config['ṕhabricator']['token']);
+$conduit = new \ConduitClient($config['phabricator']['host']);
+$conduit->setConduitToken($config['phabricator']['token']);
 
 $results = array_map(function ($issue) use ($conduit, $redmine) {
     $details = $redmine->issue->show(
@@ -137,7 +146,7 @@ $results = array_map(function ($issue) use ($conduit, $redmine) {
     );
 
     $result = $conduit->callMethodSynchronous('maniphest.update', $api_parameters);
-});
+}, $issues);
 
 // Make this nicer obviously ;)
 print_r($results);
