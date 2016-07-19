@@ -5,6 +5,9 @@
         "kbsali/redmine-api": "~1.0",
         "symfony/yaml": "~3.0"
     },
+    "require-dev": {
+        "phpspec/phpspec": "~3.0"
+    },
     "authors": [
         {
             "name": "David Raison",
