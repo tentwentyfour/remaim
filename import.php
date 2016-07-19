@@ -66,6 +66,9 @@ $redmine = new Client(
     $config['redmine']['password']
 );
 
+$conduit = new \ConduitClient($config['phabricator']['host']);
+$conduit->setConduitToken($config['phabricator']['token']);
+
 // DR: can we find another, simpler method for checking connection than this?
 // Unfortunately, the Client does not have a way of checking whether the connection was successfull,
 // since it never established a connection.
@@ -98,63 +101,83 @@ foreach ($projects as $project) {
 print('Select a project: [0]' . "\n");
 $fp = fopen('php://stdin', 'r');
 $project = trim(fgets($fp, 1024));
+fclose($fp);
 
 /////
-$detail = $redmine->project->show($project);
-var_dump($detail); exit;
-
-if(!$detail || empty($detail)) {
-    printf('No projects found!');
-}
-
-
+// $detail = $redmine->project->show($project);
+// var_dump($detail); exit;
 
 $tasks = $redmine->issue->all([
     'project_id' => $project,
     'limit' => 1024
 ]);    // 94 == VM Test Software
 if (!$tasks || empty($tasks['issues'])) {
-    printf('No tasks found on project %s', $project);
+    printf('No tasks found on project %s', $project); exit;
 }
 $issues = $tasks['issues'];
 
-$project_issuepriorities = $redmine->issuepriority->all([
-    'project_id' => $project,
-    'limit' => 1024
-]);
-var_dump($project_issuepriorities); 
+// $project_issuepriorities = $redmine->issue_priority->all([
+//     'limit' => 1024,
+// ]);
+// var_dump($project_issuepriorities); 
 
-if($project_issuepriorities == Issue::PRIO_IMMEDIATE || $project_issuepriorities == Issue::PRIO_URGENT){
-    printf('Priority: Immediate/Unbreak now');
-}else{
-    if($project_issuepriorities == Issue::PRIO_HIGH){
-    printf('Priority: High');
-      }else{
-          if($project_issuepriorities == Issue::PRIO_NORMAL){
-          printf('Priority: Normal');
-          }else{
-              if($project_issuepriorities == Issue::PRIO_LOW)
-              {printf('Priority: Low');}
-           }
+// if ($project_issuepriorities == Issue::PRIO_IMMEDIATE || $project_issuepriorities == Issue::PRIO_URGENT) {
+//     printf('Priority: Immediate/Unbreak now');
+// } else {
+//     if ($project_issuepriorities == Issue::PRIO_HIGH) {
+//         printf('Priority: High');
+//     } else {
+//         if ($project_issuepriorities == Issue::PRIO_NORMAL){
+//           printf('Priority: Normal');
+//           } else {
+//               if ($project_issuepriorities == Issue::PRIO_LOW)
+//               {printf('Priority: Low');}
+//            }
 
-     }
+//      }
+// }
+
+print('Enter the id/slug of the project, press enter to see projects or enter [0] to create a new project in phabricator' . "\n");
+$fp = fopen('php://stdin', 'r');
+$phab_project = trim(fgets($fp, 1024));
+fclose($fp);
+
+if ('0' === $phab_project) {
+    $detail = $redmine->project->show($project);
+    var_dump($detail);
+    //  here be redmine to phabricator conversion magic
+    // $api_parameters = $detail;
+    $result = $conduit->callMethodSynchronous('project.create', $api_parameters);
+
+} elseif ('' === $phab_project) {
+
+} else {
+    if (is_numeric($phab_project)) {
+        $api_parameters = [
+            'ids' => [$phab_project],
+        ];
+        $result = $conduit->callMethodSynchronous('project.query', $api_parameters);
+        $found = array_pop($result['data']);
+        // print_r($found['phid']);
+    } else {
+        $api_parameters = [
+             'slugs' => [$phab_project],
+        ];
+        $result = $conduit->callMethodSynchronous('project.query', $api_parameters);
+        print_r($result);
+    }
 }
 
-$relation = $redmine->issuerelation->all([
-    'project_id' => $project,
-    'limit' => 1024
-]);
-var_dump($relation);
-
-$project_issuerelation = $redmine->issuerelation->show($relation);
-var_dump($project_issuerelation); 
 exit;
 
-$project_issuestatus = $redmine->issuestatus->all([
-    'project_id' => $project,
-    'limit' => 1024
-]); 
-var_dump($project_issuestatus); 
+// $project_issuerelation = $redmine->issuerelation->show($relation);
+// var_dump($project_issuerelation); 
+
+// $project_issuestatus = $redmine->issue_status->all([
+//     'project_id' => $project,
+//     'limit' => 1024
+// ]); 
+// var_dump($project_issuestatus); 
 
 /////
 
@@ -175,42 +198,56 @@ $priority_map = [
     'High' => 80,       // High
     'Normal' => 50,     // Normal
     'Low' => 25         // Low
-                        // Wishlist
+     // Wishlist
 ];
 
-$conduit = new \ConduitClient($config['phabricator']['host']);
-$conduit->setConduitToken($config['phabricator']['token']);
-
+/**
+ * Once we have a list of all issues on the selected project from redmine,
+ * we will loop through them using array_map and add each issue to the 
+ * new project on phabricator
+ */
 $results = array_map(function ($issue) use ($conduit, $redmine) {
     $details = $redmine->issue->show(
         $issue['id'],
         [
             'include' => [
+                'children',
+                'attachments',
+                'relations',
+                'watchers',
                 'journals',
-                'attachments'   // AFAIK no support for relations or children in phabricator
             ]
         ]
     );
 
+    // $relations = $redmine->issue_relation->all(
+    //     $issue['id'], 
+    //     [
+    //         'limit' => 1024,
+    //     ]
+    // );
+    // var_dump('relations', $relations);
+
     var_dump($details); 
-    $project_attachments = $redmine->attachment->show($attachment);
-    var_dump($project_attachments);
+    // $project_attachments = $redmine->attachment->show($attachment);
+    // var_dump($project_attachments);
 
     /*$description = str_replace("\r", '', $data[20]);
-    $api_parameters = array(
+    $api_parameters = [
         'title' => $data[6],
         'description' => $description,
         'priority' => $priority_map[$data[5]],
         'projectPHIDs' => array(
             'PHID-PROJ-a6hzhivybh7qpyq47yiv',
         ),
-    );
+    ];
     $task = $conduit->callMethodSynchronous('maniphest.createtask', $api_parameters);
+
     $api_parameters = array(
         'comments' => 'test comment',
     );
 
-    $result = $conduit->callMethodSynchronous('maniphest.update', $api_parameters);*/
+    $result = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);*/
 }, $issues);
 
 // Make this nicer obviously ;)
