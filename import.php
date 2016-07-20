@@ -119,7 +119,7 @@ $issues = $tasks['issues'];
 // $project_issuepriorities = $redmine->issue_priority->all([
 //     'limit' => 1024,
 // ]);
-// var_dump($project_issuepriorities); 
+// var_dump($project_issuepriorities,Issue::PRIO_IMMEDIATE);  exit;
 
 // if ($project_issuepriorities == Issue::PRIO_IMMEDIATE || $project_issuepriorities == Issue::PRIO_URGENT) {
 //     printf('Priority: Immediate/Unbreak now');
@@ -137,7 +137,7 @@ $issues = $tasks['issues'];
 //      }
 // }
 
-print('Enter the id/slug of the project, press enter to see projects or enter [0] to create a new project in phabricator' . "\n");
+print('Enter the id/slug of the project, press [Enter] to see projects or enter [0] to create a new project in phabricator' . "\n");
 $fp = fopen('php://stdin', 'r');
 $phab_project = trim(fgets($fp, 1024));
 fclose($fp);
@@ -145,12 +145,25 @@ fclose($fp);
 if ('0' === $phab_project) {
     $detail = $redmine->project->show($project);
     var_dump($detail);
+
+    $api_parameters = [
+        'name' => $detail['project']['name']
+        ];
     //  here be redmine to phabricator conversion magic
     // $api_parameters = $detail;
     $result = $conduit->callMethodSynchronous('project.create', $api_parameters);
+    $found = array_pop($result['data']);
+    if (isset($found['phid'])) {
+        printf(
+               'OK, found project named "%s" with PHID %s' . "\n",
+               $found['name'],
+               $found['phid']
+        );
+    }
 
 } elseif ('' === $phab_project) {
-
+    $detail = $redmine->project->show($project);
+    var_dump($detail);
 } else {
     if (is_numeric($phab_project)) {
         $api_parameters = [
@@ -158,17 +171,33 @@ if ('0' === $phab_project) {
         ];
         $result = $conduit->callMethodSynchronous('project.query', $api_parameters);
         $found = array_pop($result['data']);
+        if (isset($found['phid'])) {
+            printf(
+                'OK, found project named "%s" with PHID %s' . "\n",
+                $found['name'],
+                $found['phid']
+            );
+        }
         // print_r($found['phid']);
     } else {
         $api_parameters = [
              'slugs' => [$phab_project],
         ];
         $result = $conduit->callMethodSynchronous('project.query', $api_parameters);
-        print_r($result);
-    }
+        $found = array_pop($result['data']);
+        if (isset($found['phid'])) {
+            printf(
+                'OK, found project named "%s" with PHID %s' . "\n",
+                $found['name'],
+                $found['phid']
+            );
+        }
+    }   
 }
 
-exit;
+// exit;
+
+
 
 // $project_issuerelation = $redmine->issuerelation->show($relation);
 // var_dump($project_issuerelation); 
@@ -206,7 +235,7 @@ $priority_map = [
  * we will loop through them using array_map and add each issue to the 
  * new project on phabricator
  */
-$results = array_map(function ($issue) use ($conduit, $redmine) {
+$results = array_map(function ($issue) use ($conduit, $redmine, $found, $priority_map) {
     $details = $redmine->issue->show(
         $issue['id'],
         [
@@ -220,34 +249,99 @@ $results = array_map(function ($issue) use ($conduit, $redmine) {
         ]
     );
 
-    // $relations = $redmine->issue_relation->all(
-    //     $issue['id'], 
-    //     [
-    //         'limit' => 1024,
-    //     ]
-    // );
-    // var_dump('relations', $relations);
 
-    var_dump($details); 
-    // $project_attachments = $redmine->attachment->show($attachment);
-    // var_dump($project_attachments);
-
-    /*$description = str_replace("\r", '', $data[20]);
     $api_parameters = [
-        'title' => $data[6],
-        'description' => $description,
-        'priority' => $priority_map[$data[5]],
-        'projectPHIDs' => array(
-            'PHID-PROJ-a6hzhivybh7qpyq47yiv',
-        ),
+        'realnames' => [$details['issue']['author']['name']],
     ];
-    $task = $conduit->callMethodSynchronous('maniphest.createtask', $api_parameters);
+    $result = $conduit->callMethodSynchronous('user.query', $api_parameters);
+    // var_dump($result);
+    $owner = array_pop($result);
 
-    $api_parameters = array(
-        'comments' => 'test comment',
-    );
+    $description = str_replace("\r", '', $details['issue']['description']);
 
-    $result = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);*/
+    // printf('Looking for existing tickets with text "%s"' . "\n", $details['issue']['project']['name']);
+    $api_parameters = [
+        'fullText' => $description,
+        // 'description' => $description,
+    ];
+    $ticket = $conduit->callMethodSynchronous('maniphest.query', $api_parameters);
+    // var_dump($ticket);exit;
+
+    // $api_parameters = [
+    //     'priority' => [$details['issue']['priority']['name']],
+    // ];
+    // $result = $conduit->callMethodSynchronous('maniphest.query', $api_parameters);
+    // $priority = array_pop($result);
+
+    if (empty($ticket)) {
+    
+        $api_parameters = [
+            'title' => $details['issue']['subject'],
+            'description' => $description,
+            'ownerPHID' => $owner['phid'],
+            'priority' => $priority_map[$details['issue']['priority']['name']],
+            'projectPHIDs' => array(
+                $found['phid'],
+            ),
+            // 'viewPolicy' => 
+        ];
+
+        $task = $conduit->callMethodSynchronous('maniphest.createtask', $api_parameters);
+    }
+
+    $api_parameters = [
+      'objectIdentifier' => $ticket['phid'],
+      'transactions' => [
+        [
+            'type' => 'title',
+            'value' => $details['issue']['subject'], // war et label?
+        ],
+      ]
+    ];
+
+    $titlefix = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
+/*
+    $api_parameters = [
+    'objectIdentifier' => $ticket['phid'],
+    'transactions' => [
+        [
+            'type' => 'comment',
+            'value' => $details['issue']['journals']['notes'],
+        ],
+      ]
+    ];
+
+    $commentfix = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
+
+    $api_parameters = [
+    'objectIdentifier' => $ticket['phid'],
+    'transactions' => [
+        [
+            'type' => 'title',
+            'value' => $details['issue']['subject'],
+        ],
+      ]
+    ];
+
+    $titlefix = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);*/
+
+    // $attachment = download($details['issue']['attachments']);
+
+    // $api_parameters = [
+    //     'name' => $attachment['0']['filename'],
+    //     'data_base64' =>
+    //     'viewPolicy' => 
+    // ];
+    // $result = $conduit->callMethodSynchronous('file.upload', $api_parameters);
+    // var_dump($api_parameters);
+
+
+
+    // $api_parameters = array(
+    //     'comments' => 'test comment',
+    // );
+
+    // $result = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
 }, $issues);
 
 // Make this nicer obviously ;)
