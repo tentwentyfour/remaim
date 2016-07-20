@@ -56,7 +56,7 @@ function addToProject($container, $project)
 // OK, the API treats APIKeys as usernames,
 // Client::prepareRequest() looks at isset(Password) and replaces it by a random string in the opposite case
 // $redmine = new Client('https://redmine.1024.lu', '4ff32c96a52dfe3c850b4cd22be33cfcce02cb54');
-// It always sets CURLOPT_USERPWD though… 
+// It always sets CURLOPT_USERPWD though…
 // Well, this is kind of a a limiation of our redmine setup too because of basic Auth based on ldap!
 //
 // Read URL, token/password from config file?
@@ -98,7 +98,7 @@ usort($projects, function ($a, $b) {
 foreach ($projects as $project) {
     print(representProject($project));
 }
-print('Select a project: [0]' . "\n");
+print('Select a project: [0] ' . "\n> ");
 $fp = fopen('php://stdin', 'r');
 $project = trim(fgets($fp, 1024));
 fclose($fp);
@@ -110,7 +110,7 @@ fclose($fp);
 $tasks = $redmine->issue->all([
     'project_id' => $project,
     'limit' => 1024
-]);    // 94 == VM Test Software
+]);
 if (!$tasks || empty($tasks['issues'])) {
     printf('No tasks found on project %s', $project); exit;
 }
@@ -137,7 +137,7 @@ $issues = $tasks['issues'];
 //      }
 // }
 
-print('Enter the id/slug of the project, press [Enter] to see projects or enter [0] to create a new project in phabricator' . "\n");
+print("Please enter the id/slug of the project in phabricator.\n Press [Enter] to see a list of available projects or\n enter [0] to create a new project from the Redmine project's details\n> ");
 $fp = fopen('php://stdin', 'r');
 $phab_project = trim(fgets($fp, 1024));
 fclose($fp);
@@ -162,8 +162,9 @@ if ('0' === $phab_project) {
     }
 
 } elseif ('' === $phab_project) {
-    $detail = $redmine->project->show($project);
-    var_dump($detail);
+    // TODO
+    // $detail = $redmine->project->show($project);
+    // var_dump($detail);
 } else {
     if (is_numeric($phab_project)) {
         $api_parameters = [
@@ -178,7 +179,6 @@ if ('0' === $phab_project) {
                 $found['phid']
             );
         }
-        // print_r($found['phid']);
     } else {
         $api_parameters = [
              'slugs' => [$phab_project],
@@ -192,33 +192,14 @@ if ('0' === $phab_project) {
                 $found['phid']
             );
         }
-    }   
+    }
 }
-
-// exit;
-
-
-
-// $project_issuerelation = $redmine->issuerelation->show($relation);
-// var_dump($project_issuerelation); 
 
 // $project_issuestatus = $redmine->issue_status->all([
 //     'project_id' => $project,
 //     'limit' => 1024
-// ]); 
-// var_dump($project_issuestatus); 
-
-/////
-
-// Grab issues for the selected project
-$tasks = $redmine->issue->all([
-    'project_id' => $project,
-    'limit' => 1024
-]);    // 94 == VM Test Software
-if (!$tasks || empty($tasks['issues'])) {
-    printf('No tasks found on project %s', $project);
-}
-$issues = $tasks['issues'];
+// ]);
+// var_dump($project_issuestatus);
 
 // Well, this will probably have to go into the yml file?
 $priority_map = [
@@ -232,7 +213,7 @@ $priority_map = [
 
 /**
  * Once we have a list of all issues on the selected project from redmine,
- * we will loop through them using array_map and add each issue to the 
+ * we will loop through them using array_map and add each issue to the
  * new project on phabricator
  */
 $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priority_map) {
@@ -254,27 +235,26 @@ $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priorit
         'realnames' => [$details['issue']['author']['name']],
     ];
     $result = $conduit->callMethodSynchronous('user.query', $api_parameters);
-    // var_dump($result);
     $owner = array_pop($result);
 
     $description = str_replace("\r", '', $details['issue']['description']);
 
-    // printf('Looking for existing tickets with text "%s"' . "\n", $details['issue']['project']['name']);
     $api_parameters = [
         'fullText' => $description,
         // 'description' => $description,
     ];
-    $ticket = $conduit->callMethodSynchronous('maniphest.query', $api_parameters);
-    // var_dump($ticket);exit;
+    $ticket = null;
+    $tickets = $conduit->callMethodSynchronous('maniphest.query', $api_parameters);
 
-    // $api_parameters = [
-    //     'priority' => [$details['issue']['priority']['name']],
-    // ];
-    // $result = $conduit->callMethodSynchronous('maniphest.query', $api_parameters);
-    // $priority = array_pop($result);
+    if (!empty($tickets) && sizeof($tickets) === 1) {
+        $ticket = array_pop($tickets);
+    } else {
+        var_dump($tickets);
+        die('Argh, more than one ticket found, need to do something about this.');
+        // What do?
+    }
 
-    if (empty($ticket)) {
-    
+    if (false || empty($ticket)) {
         $api_parameters = [
             'title' => $details['issue']['subject'],
             'description' => $description,
@@ -283,24 +263,35 @@ $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priorit
             'projectPHIDs' => array(
                 $found['phid'],
             ),
-            // 'viewPolicy' => 
+            // 'viewPolicy' =>
         ];
-
         $task = $conduit->callMethodSynchronous('maniphest.createtask', $api_parameters);
+        var_dump('task created is', $task);
     }
 
-    $api_parameters = [
-      'objectIdentifier' => $ticket['phid'],
-      'transactions' => [
-        [
-            'type' => 'title',
-            'value' => $details['issue']['subject'], // war et label?
-        ],
-      ]
-    ];
+    /**
+     * Is $task identical/similar to $ticket?
+     */
+    // DR: or !empty $task?
+    if (!empty($ticket) && isset($ticket['phid'])) {
+        /**
+         * Now update the ticket with additional information (comments, attachments, relations, subscribers, etc)
+         */
+        $api_parameters = [
+          'objectIdentifier' => $ticket['phid'],
+          'transactions' => [
+            [
+                'type' => 'title',
+                'value' => $details['issue']['subject'],
+            ],
+          ]
+        ];
 
-    $titlefix = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
-/*
+        $titlefix = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
+    }
+
+    /*
+    // DR: Almost like that ;)
     $api_parameters = [
     'objectIdentifier' => $ticket['phid'],
     'transactions' => [
@@ -325,12 +316,13 @@ $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priorit
 
     $titlefix = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);*/
 
-    // $attachment = download($details['issue']['attachments']);
 
+
+    // $attachment = download($details['issue']['attachments']);
     // $api_parameters = [
     //     'name' => $attachment['0']['filename'],
     //     'data_base64' =>
-    //     'viewPolicy' => 
+    //     'viewPolicy' =>
     // ];
     // $result = $conduit->callMethodSynchronous('file.upload', $api_parameters);
     // var_dump($api_parameters);
