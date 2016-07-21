@@ -116,26 +116,6 @@ if (!$tasks || empty($tasks['issues'])) {
 }
 $issues = $tasks['issues'];
 
-// $project_issuepriorities = $redmine->issue_priority->all([
-//     'limit' => 1024,
-// ]);
-// var_dump($project_issuepriorities,Issue::PRIO_IMMEDIATE);  exit;
-
-// if ($project_issuepriorities == Issue::PRIO_IMMEDIATE || $project_issuepriorities == Issue::PRIO_URGENT) {
-//     printf('Priority: Immediate/Unbreak now');
-// } else {
-//     if ($project_issuepriorities == Issue::PRIO_HIGH) {
-//         printf('Priority: High');
-//     } else {
-//         if ($project_issuepriorities == Issue::PRIO_NORMAL){
-//           printf('Priority: Normal');
-//           } else {
-//               if ($project_issuepriorities == Issue::PRIO_LOW)
-//               {printf('Priority: Low');}
-//            }
-
-//      }
-// }
 
 print('Enter the id/slug of the project, press [Enter] to see projects or enter [0] to create a new project in phabricator' . "\n");
 $fp = fopen('php://stdin', 'r');
@@ -195,9 +175,6 @@ if ('0' === $phab_project) {
     }   
 }
 
-// exit;
-
-
 
 // $project_issuerelation = $redmine->issuerelation->show($relation);
 // var_dump($project_issuerelation); 
@@ -207,8 +184,6 @@ if ('0' === $phab_project) {
 //     'limit' => 1024
 // ]); 
 // var_dump($project_issuestatus); 
-
-/////
 
 // Grab issues for the selected project
 $tasks = $redmine->issue->all([
@@ -254,7 +229,6 @@ $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priorit
         'realnames' => [$details['issue']['author']['name']],
     ];
     $result = $conduit->callMethodSynchronous('user.query', $api_parameters);
-    // var_dump($result);
     $owner = array_pop($result);
 
     $description = str_replace("\r", '', $details['issue']['description']);
@@ -262,16 +236,26 @@ $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priorit
     // printf('Looking for existing tickets with text "%s"' . "\n", $details['issue']['project']['name']);
     $api_parameters = [
         'fullText' => $description,
-        // 'description' => $description,
     ];
     $ticket = $conduit->callMethodSynchronous('maniphest.query', $api_parameters);
-    // var_dump($ticket);exit;
+    var_dump($ticket);
 
     // $api_parameters = [
     //     'priority' => [$details['issue']['priority']['name']],
     // ];
     // $result = $conduit->callMethodSynchronous('maniphest.query', $api_parameters);
     // $priority = array_pop($result);
+
+    printf(
+             'Do you want to migrate "%s" to %s [y|N]' . "\n",
+             $found['name'],
+             $ticket['PHID-TASK-avp53clc72oqwdetydod']['id']
+         );
+    $fp = fopen('php://stdin', 'r');
+    $check = trim(fgets($fp, 1024));
+    fclose($fp);exit;
+
+if ($check == 'y') {
 
     if (empty($ticket)) {
     
@@ -290,7 +274,7 @@ $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priorit
     }
 
     $api_parameters = [
-      'objectIdentifier' => $ticket['phid'],
+      'objectIdentifier' => $ticket['PHID-TASK-avp53clc72oqwdetydod']['id'],
       'transactions' => [
         [
             'type' => 'title',
@@ -324,6 +308,12 @@ $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priorit
     ];
 
     $titlefix = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);*/
+
+    }
+
+elseif ($check == 'N') {
+    exit;
+}
 
     // $attachment = download($details['issue']['attachments']);
 
