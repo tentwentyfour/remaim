@@ -53,6 +53,17 @@ function addToProject($container, $project)
     }, $container, array_keys($container));
 }
 
+function getPhabricatorUserPhid($conduit, $fullnames)
+{
+    $api_parameters = [
+        'realnames' => $fullnames,
+    ];
+    $result = $conduit->callMethodSynchronous('user.query', $api_parameters);
+    return array_map(function ($user) {
+        return $user['phid'];
+    }, $result);
+}
+
 // OK, the API treats APIKeys as usernames,
 // Client::prepareRequest() looks at isset(Password) and replaces it by a random string in the opposite case
 // $redmine = new Client('https://redmine.1024.lu', '4ff32c96a52dfe3c850b4cd22be33cfcce02cb54');
@@ -76,6 +87,9 @@ $project_listing = $redmine->project->listing();
 if (empty($project_listing)) {
     die("\n" . 'Your project list is empty or we were unable to connect to redmine. Check your credentials!' . "\n");
 }
+
+// Which project should get permissions on the newly created projects and tickets?
+// 
 
 // First list available projects, then allow the user to select one
 $reply = $redmine->project->all(['limit' => 1024]);
@@ -103,16 +117,17 @@ $fp = fopen('php://stdin', 'r');
 $project = trim(fgets($fp, 1024));
 fclose($fp);
 
-/////
-// $detail = $redmine->project->show($project);
-// var_dump($detail); exit;
-
 $tasks = $redmine->issue->all([
     'project_id' => $project,
     'limit' => 1024
 ]);
+
+$project_detail = $redmine->project->show($project);
+
+
 if (!$tasks || empty($tasks['issues'])) {
-    printf('No tasks found on project %s', $project); exit;
+    printf('No tasks found on project %s', $project. "\n"); 
+    // exit;
 }
 $issues = $tasks['issues'];
 
@@ -123,28 +138,34 @@ $phab_project = trim(fgets($fp, 1024));
 fclose($fp);
 
 if ('0' === $phab_project) {
-    $detail = $redmine->project->show($project);
-    var_dump($detail);
 
+
+    $detail = $redmine->project->show($project);
+    $memberships = $redmine->membership->all($project);
+    $members = array_filter(
+        array_map(function ($relation) {
+            return isset($relation['user']) ? $relation['user']['name'] : null;
+        }, $memberships['memberships']),
+        function ($member) {
+            return $member != null;
+        }
+    );
+
+    $phab_members = getPhabricatorUserPhid($conduit, $members);
+    
     $api_parameters = [
-        'name' => $detail['project']['name']
-        ];
-    //  here be redmine to phabricator conversion magic
-    // $api_parameters = $detail;
-    $result = $conduit->callMethodSynchronous('project.create', $api_parameters);
-    $found = array_pop($result['data']);
-    if (isset($found['phid'])) {
-        printf(
-               'OK, found project named "%s" with PHID %s' . "\n",
-               $found['name'],
-               $found['phid']
-        );
-    }
+        'name' => $detail['project']['name'],
+        'members' => $phab_members,
+        'viewPolicy' => '',
+    ];
+    $found = $conduit->callMethodSynchronous('project.create', $api_parameters);
+    
+    // TO BE FINISHED
+    // printf('OK, created project "%s" with phid %s')
 
 } elseif ('' === $phab_project) {
-    // TODO
-    // $detail = $redmine->project->show($project);
-    // var_dump($detail);
+    // TO BE FINISHED
+    
 } else {
     if (is_numeric($phab_project)) {
         $api_parameters = [
@@ -175,6 +196,36 @@ if ('0' === $phab_project) {
     }
 }
 
+printf(
+    'Redmine project named "%s" with ID %s' . "\n",
+    $project_detail['project']['name'],
+    $project
+);
+printf(
+    'Target phabricator project named "%s" with ID %s' . "\n",        
+    $found['name'],
+    $found['id']
+);
+
+printf(
+    '%d tickets to be migrated! OK to continue? [y/N]' . "\n> ",
+    sizeof($issues)
+);
+$fp = fopen('php://stdin', 'r');
+$checking = trim(fgets($fp, 1024));
+fclose($fp);
+
+if (!($checking == 'y' || $checking == 'Y')) {
+    die('bye'. "\n");
+}
+
+/** Here is what i am going to do:
+ * redmine project: numm, id
+ * target phabricator project: numm, ev. id
+ * X tickets to be migrated (sizeof($issues))
+ * OK to continuie?
+
+if no then die('bye'); */
 // exit;
 
 
@@ -189,6 +240,7 @@ if ('0' === $phab_project) {
 // var_dump($project_issuestatus);
 
 // Well, this will probably have to go into the yml file?
+
 $priority_map = [
     'Immediate' => 100, // unbreak now!
     'Urgent' => 100,    // unbreak now!
@@ -203,7 +255,9 @@ $priority_map = [
  * we will loop through them using array_map and add each issue to the
  * new project on phabricator
  */
-$results = array_map(function ($issue) use ($conduit, $redmine, $found, $priority_map) {
+$phab_statuses = $conduit->callMethodSynchronous('maniphest.querystatuses', []);
+$status_map = $phab_statuses['statusMap'];
+$results = array_map(function ($issue) use ($conduit, $redmine, $found, $priority_map, $config, $status_map) {
     $details = $redmine->issue->show(
         $issue['id'],
         [
@@ -217,26 +271,25 @@ $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priorit
         ]
     );
 
-
     $api_parameters = [
         'realnames' => [$details['issue']['author']['name']],
     ];
     $result = $conduit->callMethodSynchronous('user.query', $api_parameters);
     $owner = array_pop($result);
 
-    $description = str_replace("\r", '', $details['issue']['description']);
 
+    $description = str_replace("\r", '', $details['issue']['description']);
     $api_parameters = [
         'fullText' => $description,
     ];
-    $ticket = $conduit->callMethodSynchronous('maniphest.query', $api_parameters);
+    $tickets = $conduit->callMethodSynchronous('maniphest.query', $api_parameters);
     // var_dump($ticket);exit;
 
     if (!empty($tickets) && sizeof($tickets) === 1) {
         $ticket = array_pop($tickets);
     } else {
         var_dump($tickets);
-        die('Argh, more than one ticket found, need to do something about this.');
+        die('Argh, more than one ticket found, need to do something about this.'. "\n");
         // What do?
     }
 
@@ -262,65 +315,125 @@ $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priorit
      */
     // DR: or !empty $task?
     if (!empty($ticket) && isset($ticket['phid'])) {
+
+        $transactions = [];
+
+        if ($ticket['title'] !== $details['issue']['subject']) {
+            $transactions[] = [
+                'type' => 'title',
+                'value' => $details['issue']['subject'],
+            ];
+        };
+    
+
+        $file_ids = [];
+        foreach ($details['issue']['attachments'] as $attachment) {
+            $url = preg_replace(
+                '/http(s?):\/\//', 
+                sprintf(
+                    'https://%s:%s@',
+                    $config['redmine']['user'],
+                    $config['redmine']['password']
+                ),
+                $attachment['content_url']
+            );
+            
+            $encoded = base64_encode(file_get_contents($url));
+            $api_parameters = [
+                'name' => $attachment['filename'],
+                'data_base64' => $encoded
+               // 'viewPolicy' => todo!
+            ];
+            $file_phid = $conduit->callMethodSynchronous('file.upload', $api_parameters);
+            $api_parameters = array(
+              'phid' => $file_phid,
+            );
+            $result = $conduit->callMethodSynchronous('file.info', $api_parameters);
+            $file_ids[] = sprintf('{%s}', $result['objectName']);
+        }    
+        
+        $files = implode(' ', $file_ids);
+        $transactions[] = [
+            'type' => 'description',
+            'value' => sprintf("%s\n\n%s", $description, $files)
+        ];
+
+        // query phabricator => save to list
+        $status = $details['issue']['status']['name'];
+        $key = array_search($status, $status_map);
+
+        if (!$key) {
+            printf('We could not find a matching key for your status "%s"!' . "\n> ", $status);
+            foreach ($status_map as $key => $value) {
+                printf("%s\n", $key);
+            }
+            $fp = fopen('php://stdin', 'r');
+            $key = trim(fgets($fp, 1024));
+            fclose($fp);
+        }
+
+        $status_map[$key] = $status; 
+
+        // save new mapping to list
+
+        $transactions[] = [
+            'type' => 'status',
+            'value' => $key,
+        ];
+        
+        foreach ($details['issue']['journals'] as $journal) {
+            if (!isset($journal['notes']) || empty($journal['notes'])) {
+                continue;
+            }
+
+            $comment = sprintf(
+                "%s originally wrote:\n> %s",
+                $journal['user']['name'],
+                $journal['notes']
+            );
+
+            $transactions[] = [
+                'type' => 'comment',
+                'value' => $comment,
+            ];
+        }        
+        
+        foreach ($details['issue']['watchers'] as $journal) {
+            if (!isset($journal['name']) || empty($journal['name'])) {
+                continue;
+            }
+            $subscribers = $journal['name'];
+            $phab_sub = 
+            $transactions[] = [
+                'type' => 'subscribers.set',
+                'value' => $subscribers,
+            ];
+        }      
+
+        // todo:
+        // priority    Change the priority of the task.
+        // view    Change the view policy of the object.
+        // edit    Change the edit policy of the object.
+        // subscribers.set Set subscribers, overwriting current value.
+        
+
         /**
          * Now update the ticket with additional information (comments, attachments, relations, subscribers, etc)
          */
         $api_parameters = [
           'objectIdentifier' => $ticket['phid'],
-          'transactions' => [
-            [
-                'type' => 'title',
-                'value' => $details['issue']['subject'],
-            ],
-          ]
+          'transactions' => $transactions
         ];
 
-        $titlefix = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
+        var_dump($transactions);
+
+        $edit = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
     }
 
-    /*
-    // DR: Almost like that ;)
-    $api_parameters = [
-    'objectIdentifier' => $ticket['phid'],
-    'transactions' => [
-        [
-            'type' => 'comment',
-            'value' => $details['issue']['journals']['notes'],
-        ],
-      ]
-    ];
-
-    $commentfix = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
-
-    $api_parameters = [
-    'objectIdentifier' => $ticket['phid'],
-    'transactions' => [
-        [
-            'type' => 'title',
-            'value' => $details['issue']['subject'],
-        ],
-      ]
-    ];
-
-    $titlefix = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);*/
-
-    // $attachment = download($details['issue']['attachments']);
-
-    // $api_parameters = [
-    //     'name' => $attachment['0']['filename'],
-    //     'data_base64' =>
-    //     'viewPolicy' => 
-    // ];
-    // $result = $conduit->callMethodSynchronous('file.upload', $api_parameters);
-    // var_dump($api_parameters);
 
 
 
-    // $api_parameters = array(
-    //     'comments' => 'test comment',
-    // );
 
-    // $result = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
 }, $issues);
 
 // Make this nicer obviously ;)
