@@ -8,6 +8,7 @@ use Redmine\Client;
 use Redmine\Api\Issue;
 use Symfony\Component\Yaml\Parser;
 use Symfony\Component\Yaml\Exception\ParseException;
+$phabricator_users = [];
 
 // There is a composer package for libphutil, but it's unofficial and not 100% compatible:
 // https://packagist.org/packages/mtrunkat/libphutil
@@ -53,15 +54,67 @@ function addToProject($container, $project)
     }, $container, array_keys($container));
 }
 
-function getPhabricatorUserPhid($conduit, $fullnames)
+/**
+ * Caching user lookup.
+ * Checks local cache for known users and queries conduit for any
+ * not yet known users.
+ * 
+ * @param  ConduitClient $conduit   Conduit client instance
+ * @param  array         $fullnames Array of full names to look up
+ * 
+ * @return array         PHIDs for users in $fullnames
+ */
+function getPhabricatorUserPhid($conduit, array $fullnames)
 {
-    $api_parameters = [
-        'realnames' => $fullnames,
+    global $phabricator_users;
+    $unknown_users = array_diff($fullnames, array_keys($phabricator_users));
+
+    if (!empty($unknown_users)) {
+        $api_parameters = [
+            'realnames' => $unknown_users,
+        ];
+        $result = $conduit->callMethodSynchronous('user.query', $api_parameters);
+        $queried_users = array_reduce($result, function ($carry, $user) {
+            $carry[$user['realName']] = $user['phid'];
+            return $carry;
+        });
+
+        if (!empty($queried_users)) {
+            $phabricator_users = array_merge($phabricator_users, $queried_users);
+        }
+    }
+
+    return array_values(
+        array_intersect_key($phabricator_users, array_flip($fullnames))
+    );
+}
+
+function watchersToSubscribers($conduit, $redmine_watchers)
+{
+    $watchers = [];
+    foreach ($redmine_watchers as $watcher) {
+        if (!isset($watcher['name']) || empty($watcher['name'])) {
+            continue;
+        }
+        $watchers[] = $watcher['name'];
+    }      
+
+    return getPhabricatorUserPhid($conduit, $watchers);  
+}
+
+function comment_tansaction($conduit, array $journal) {
+
+    $comment = sprintf(
+        "%s originally wrote:\n> %s",
+        $journal['user']['name'],
+        $journal['notes']
+    );
+
+    $transactions[] = [
+                'type' => 'comment',
+                'value' => $comment,
     ];
-    $result = $conduit->callMethodSynchronous('user.query', $api_parameters);
-    return array_map(function ($user) {
-        return $user['phid'];
-    }, $result);
+    return $transactions;
 }
 
 // OK, the API treats APIKeys as usernames,
@@ -166,8 +219,9 @@ if ('0' === $phab_project) {
 } elseif ('' === $phab_project) {
     // TO BE FINISHED
     
-} else {
-    if (is_numeric($phab_project)) {
+} else { 
+
+     if (is_numeric($phab_project)) {
         $api_parameters = [
             'ids' => [$phab_project],
         ];
@@ -367,55 +421,95 @@ $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priorit
             foreach ($status_map as $key => $value) {
                 printf("%s\n", $key);
             }
+            printf(
+                'Press [1] to add "%s" to the map_list; [2] if you want to give it a value from the map_list', 
+                $status
+            );
             $fp = fopen('php://stdin', 'r');
-            $key = trim(fgets($fp, 1024));
+            $map_check = trim(fgets($fp, 1024));
             fclose($fp);
+
+            if ($map_check == '1') {
+                $status_map[] = $status;
+            }
+            elseif ($map_check == '2') {
+                printf('Enter the wished value!');
+                $fp = fopen('php://stdin', 'r');
+                $new_value = trim(fgets($fp, 1024));
+                fclose($fp);
+                $status = $new_value;
+
+            }
         }
 
-        $status_map[$key] = $status; 
+        
+        // this does not work
+        
 
         // save new mapping to list
 
         $transactions[] = [
             'type' => 'status',
-            'value' => $key,
+            'value' => $status,
         ];
         
         foreach ($details['issue']['journals'] as $journal) {
             if (!isset($journal['notes']) || empty($journal['notes'])) {
-                continue;
-            }
-
-            $comment = sprintf(
-                "%s originally wrote:\n> %s",
-                $journal['user']['name'],
-                $journal['notes']
-            );
-
-            $transactions[] = [
-                'type' => 'comment',
-                'value' => $comment,
-            ];
+            continue;
+    }
+            comment_tansaction($conduit, $journal);
         }        
         
-        foreach ($details['issue']['watchers'] as $journal) {
-            if (!isset($journal['name']) || empty($journal['name'])) {
-                continue;
-            }
-            $subscribers = $journal['name'];
-            $phab_sub = 
+        $subscribers = watchersToSubscribers($conduit, $details['issue']['watchers']);
+        if (!empty($subscribers)) {
             $transactions[] = [
                 'type' => 'subscribers.set',
                 'value' => $subscribers,
             ];
-        }      
+        }
+
+        $prio = $details['issue']['priority']['name'];
+        $priority = $priority_map[$prio];
+        if (!$priority) {
+            printf('We could not find a matching priority for your priority "%s"!' . "\n> ", $prio);
+            foreach ($priority_map as $priority2 => $value) {
+                printf("%s\n", $priority2);
+            }
+
+            printf('Press [1] to add %s to the map_list; [2] if you want to give it a value from the map_list');
+            $fp = fopen('php://stdin', 'r');
+            $map_check = trim(fgets($fp, 1024));
+            fclose($fp);
+
+            if ($map_check == '1') {
+                $priority_map[] = $prio;
+            }
+            elseif ($map_check == '2') {
+                printf('Enter the wished value!');
+                $fp = fopen('php://stdin', 'r');
+                $new_value = trim(fgets($fp, 1024));
+                fclose($fp);
+                $prio = $new_value;
+
+            }
+
+            $prio = $newpriority;
+        }
+
+        $transactions[] = [
+            'type' => 'priority',
+            'value' => $prio,
+        ];
+    
 
         // todo:
-        // priority    Change the priority of the task.
-        // view    Change the view policy of the object.
-        // edit    Change the edit policy of the object.
-        // subscribers.set Set subscribers, overwriting current value.
-        
+        // priority    Change the priority of the task. //?
+        // view    Change the view policy of the object. //??//
+        // edit    Change the edit policy of the object. //??//
+        // subscribers.set Set subscribers, overwriting current value. //ok
+        //  - refactor code into functions //ok
+        //  - fix status array problem // ?
+        //  - list of phabricator projects //??
 
         /**
          * Now update the ticket with additional information (comments, attachments, relations, subscribers, etc)
@@ -424,8 +518,6 @@ $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priorit
           'objectIdentifier' => $ticket['phid'],
           'transactions' => $transactions
         ];
-
-        var_dump($transactions);
 
         $edit = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
     }
