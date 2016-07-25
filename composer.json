@@ -13,5 +13,10 @@
             "name": "David Raison",
             "email": "david@tentwentyfour.lu"
         }
-    ]
+    ],
+    "autoload": {
+        "psr-4": {
+            "Ttf\\Remaim\\": "lib/"
+        }
+    }
 }
