@@ -23,18 +23,14 @@ try {
     printf("Unable to parse the YAML string: %s", $e->getMessage());
 }
 
-try {
-    $redmine = new Client(
-        $config['redmine']['host'],
-        $config['redmine']['user'],
-        $config['redmine']['password']
-    );
+$redmine = new Client(
+    $config['redmine']['host'],
+    $config['redmine']['user'],
+    $config['redmine']['password']
+);
 
-    $conduit = new \ConduitClient($config['phabricator']['host']);
-    $conduit->setConduitToken($config['phabricator']['token']);
+$conduit = new \ConduitClient($config['phabricator']['host']);
+$conduit->setConduitToken($config['phabricator']['token']);
 
-    $wizard = new Wizard($config, $redmine, $conduit);
-    $wizard->run();
-} catch (\Exception $e) {
-    die($e->getMessage());
-}
+$wizard = new Wizard($config, $redmine, $conduit);
+$wizard->run();

@@ -14,11 +14,13 @@ class Wizard
     private $redmine;
     private $conduit;
 
-    private $project;
-    private $found;
-    private $project_detail;
-    private $issues;
-    private $transactions = [];
+    // DR: Dont put properties on the global level unless
+    // absolutely necessary!
+    // private $project;
+    // private $found;
+    // private $project_detail;
+    // private $issues;
+    // private $transactions = [];
 
     // Well, this will probably have to go into the yml file?
 
@@ -31,15 +33,8 @@ class Wizard
      // Wishlist
     ];
 
-    // OK, the API treats APIKeys as usernames,
-    // Client::prepareRequest() looks at isset(Password) and replaces it by a random string in the opposite case
-    // $redmine = new Client('https://redmine.1024.lu', '4ff32c96a52dfe3c850b4cd22be33cfcce02cb54');
-    // It always sets CURLOPT_USERPWD though…
-    // Well, this is kind of a a limiation of our redmine setup too because of basic Auth based on ldap!
     //
-    // Read URL, token/password from config file?
     // @todo   \ConduitClient
-
     public function __construct(array $config, \Redmine\Client $redmine, $conduit)
     {
         $this->config = $config;
@@ -51,15 +46,15 @@ class Wizard
     {
         try {
             $this->testConnectionToRedmine();
-            $this->project = $this->listRedmineProjects();
-            $phab_project = $this->selectOrCreatePhabricatorProject();
+            $redmine_project = $this->listRedmineProjects();
+            $phab_project = $this->selectOrCreatePhabricatorProject($redmine_project);
+            // ????
             $this->identifyRedmineAndTargetphabricatorProject();
             $this->findOrCreateTicketFromRedmineInPhab();
             print_r($results);
         } catch (\Exception $e) {
             die($e->getMessage());
         }
-
     }
 
     private function updatePhabTicket($ticket)
@@ -243,7 +238,7 @@ class Wizard
 
     }
 
-    private function CreateManiphestTask($tickets, $details, $description, $owner)
+    private function createManiphestTask($tickets, $details, $description, $owner)
     {
         if (!empty($tickets) && sizeof($tickets) === 1) {
             $ticket = array_pop($tickets);
@@ -272,6 +267,7 @@ class Wizard
                 ),
                 // 'viewPolicy' =>
             ];
+            // DR: should we replace createtask with edit?
             $task = $this->conduit->callMethodSynchronous('maniphest.createtask', $api_parameters);
             var_dump('task created is', $task);
         }
@@ -313,12 +309,14 @@ class Wizard
             'limit' => 1024
         ]);
 
-        $this->project_detail = $this->redmine->project->show($this->project);
+        // DR: this is never used here
+        // $this->project_detail = $this->redmine->project->show($this->project);
 
         if (!$tasks || empty($tasks['issues'])) {
             printf('No tasks found on project %s', $this->project. "\n");
-            // exit;
         }
+        // DR: would be better to return $tasks['issues'];
+        // then to assign them on the class level.
         $this->issues = $tasks['issues'];
     }
 
@@ -352,6 +350,7 @@ class Wizard
             );
             $constrain = $this->conduit->callMethodSynchronous('project.search', $api_parameters);
 
+            // DR: To be replaced by project.edit
             $api_parameters = [
                 'name' => $detail['project']['name'],
                 'members' => $phab_members,
@@ -366,35 +365,56 @@ class Wizard
             // TO BE FINISHED
 
         } else {
-
              if (is_numeric($phab_project)) {
                 $api_parameters = [
                     'ids' => [$phab_project],
                 ];
-                $this->findPhabProjectWithIdSlug($api_parameters);
+                $project = $this->findPhabProjectWithIdSlug($api_parameters);
             } else {
                 $api_parameters = [
                      'slugs' => [$phab_project],
                 ];
-                $this->findPhabProjectWithIdSlug($api_parameters);
+                $project = $this->findPhabProjectWithIdSlug($api_parameters);
             }
         }
+        if ($project) {
+            $this->notifyProjectFound($project);
+            return $project;
+        }
+        // Or throw exception here?
+        return false;
     }
 
-    private function findPhabProjectWithIdSlug($api_parameters)
+    private function notifyProjectFound($project)
+    {
+        printf(
+            'OK, found project named "%s" with PHID %s' . "\n",
+            $project['name'],
+            $project['phid']
+        );
+    }
+
+    /**
+     * [findPhabProjectWithIdSlug description]
+     * @param  [type] $api_parameters [description]
+     * @return [type]                 [description]
+     */
+    public function findPhabProjectWithIdSlug($api_parameters)
     {
         $result = $this->conduit->callMethodSynchronous('project.query', $api_parameters);
-        $this->found = array_pop($result['data']);
-
-        if (isset($this->found['phid'])) {
-            printf(
-                'OK, found project named "%s" with PHID %s' . "\n",
-                $this->found['name'],
-                $this->found['phid']
-            );
+        if (!empty($result['data'])) {
+            $found = array_pop($result['data']);
+            if (isset($found['phid'])) {
+                return $found;
+            }
         }
+        return false;
     }
 
+    /**
+     * [testConnectionToRedmine description]
+     * @return [type] [description]
+     */
     public function testConnectionToRedmine()
     {
         // DR: can we find another, simpler method for checking connection than this?
@@ -780,6 +800,7 @@ class Wizard
 //             // 'viewPolicy' =>
 //         ];
 
+            // DR: to be replaced by maniphest.edit ?!
 //         $task = $conduit->callMethodSynchronous('maniphest.createtask', $api_parameters);
 //         var_dump('task created is', $task);
 //     }

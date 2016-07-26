@@ -15,10 +15,12 @@ class WizardSpec extends ObjectBehavior
 
     /**
      * @todo  Find a way to mock ConduitClient which is marked as final
-     * @param
-     * @return [type]
+     * PhpSpec/Prophecy sucks… maybe Mockery is better?
+     * See http://docs.mockery.io/en/latest/
+     *
+     * @return void
      */
-    public function let(Client $redmine, Project $project)
+    public function let(Client $redmine, Project $project, \stdClass $conduit)
     {
         $config = [
             'redmine' => [
@@ -26,7 +28,7 @@ class WizardSpec extends ObjectBehavior
             'phabricator' => [
             ],
         ];
-        $conduit = new \stdClass();
+        // $conduit = new \stdClass();
         $this->beConstructedWith($config, $redmine, $conduit);
     }
 
@@ -41,6 +43,18 @@ class WizardSpec extends ObjectBehavior
         $project->listing()->shouldBeCalled();
         $this->shouldThrow('\InvalidArgumentException')->duringTestConnectionToRedmine();
     }
+
+    function it_should_be_able_to_look_up_a_phabricator_project_by_its_id(\stdClass $conduit)
+    {
+        $project_array = [
+            'phid' => 'test-phid',
+            'name' => 'test-project-name',
+        ];
+        $conduit->callMethodSynchronous()->willReturn($project_array);
+        $this->findPhabProjectWithIdSlug()->shouldReturn($project_array);
+    }
+
+
 
     // function it_shows_a_list_of_the_projects(Wizard $project_create)
     // {
