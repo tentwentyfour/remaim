@@ -243,7 +243,7 @@ class Wizard
 
     }
 
-    private function searchForPhabticket($tickets, $details, $description, $owner)
+    private function CreateManiphestTask($tickets, $details, $description, $owner)
     {
         if (!empty($tickets) && sizeof($tickets) === 1) {
             $ticket = array_pop($tickets);
@@ -275,43 +275,6 @@ class Wizard
             $task = $this->conduit->callMethodSynchronous('maniphest.createtask', $api_parameters);
             var_dump('task created is', $task);
         }
-    }
-
-    private function findOrCreateTicketFromRedmineInPhab($issues)
-    {
-         // * Once we have a list of all issues on the selected project from redmine,
-         // * we will loop through them using array_map and add each issue to the
-         // * new project on phabricator
-        $phab_statuses = $this->conduit->callMethodSynchronous('maniphest.querystatuses', []);
-        $status_map = $phab_statuses['statusMap'];
-        $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priority_map, $config, $status_map) {
-            $details = $this->redmine->issue->show(
-                $issue['id'],
-                [
-                    'include' => [
-                        'children',
-                        'attachments',
-                        'relations',
-                        'watchers',
-                        'journals',
-                    ]
-                ]
-            );
-
-            $api_parameters = [
-            'realnames' => [$details['issue']['author']['name']],
-            ];
-            $result = $this->conduit->callMethodSynchronous('user.query', $api_parameters);
-            $owner = array_pop($result);
-
-            $description = str_replace("\r", '', $details['issue']['description']);
-            $api_parameters = [
-                'fullText' => $description,
-            ];
-            $tickets = $this->conduit->callMethodSynchronous('maniphest.query', $api_parameters);
-
-            $this->searchForPhabticket($tickets, $details, $description, $owner);
-        }, $issues);
     }
 
     private function identifyRedmineAndTargetphabricatorProject()
@@ -379,11 +342,20 @@ class Wizard
             );
 
             $phab_members = $this->getPhabricatorUserPhid($this->$conduit, $members);
+            
+            $api_parameters = array(
+              'constraints' => array(
+                'icons' => array(
+                  'group',
+                ),
+              ),
+            );
+            $constrain = $this->conduit->callMethodSynchronous('project.search', $api_parameters);
 
             $api_parameters = [
                 'name' => $detail['project']['name'],
                 'members' => $phab_members,
-                'viewPolicy' => '',
+                'viewPolicy' => $constrain,
             ];
             $found = $this->conduit->callMethodSynchronous('project.create', $api_parameters);
 
@@ -534,6 +506,45 @@ class Wizard
         return $this->getPhabricatorUserPhid($watchers);
     }
 }
+
+    private function findOrCreateTicketFromRedmineInPhab()
+    {
+         // * Once we have a list of all issues on the selected project from redmine,
+         // * we will loop through them using array_map and add each issue to the
+         // * new project on phabricator 
+        $phab_statuses = $this->conduit->callMethodSynchronous('maniphest.querystatuses', []);
+        $status_map = $phab_statuses['statusMap'];
+        $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priority_map, $config, $status_map) {
+            $details = $this->redmine->issue->show(
+                $issue['id'],
+                [
+                    'include' => [
+                        'children',
+                        'attachments',
+                        'relations',
+                        'watchers',
+                        'journals',
+                    ]
+                ]
+            );
+
+        $api_parameters = [
+        'realnames' => [$details['issue']['author']['name']],
+        ];
+        $result = $this->conduit->callMethodSynchronous('user.query', $api_parameters);
+        $owner = array_pop($result);
+
+        $description = str_replace("\r", '', $details['issue']['description']);
+        $api_parameters = [
+            'fullText' => $description,
+        ];
+        $tickets = $this->conduit->callMethodSynchronous('maniphest.query', $api_parameters);
+
+        $this->CreateManiphestTask($tickets, $details, $description, $owner);
+        }
+    }
+
+// /*
 
 // // DR: can we find another, simpler method for checking connection than this?
 // // Unfortunately, the Client does not have a way of checking whether the connection was successfull,
@@ -957,3 +968,4 @@ class Wizard
 
 //     // Make this nicer obviously ;)
 //     print_r($results);
+}
