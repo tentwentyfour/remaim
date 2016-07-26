@@ -1,6 +1,6 @@
 <?php
 /**
- * 
+ *
  */
 
 // There is a composer package for libphutil, but it's unofficial and not 100% compatible:
@@ -23,14 +23,18 @@ try {
     printf("Unable to parse the YAML string: %s", $e->getMessage());
 }
 
-$redmine = new Client(
-    $config['redmine']['host'],
-    $config['redmine']['user'],
-    $config['redmine']['password']
-);
+try {
+    $redmine = new Client(
+        $config['redmine']['host'],
+        $config['redmine']['user'],
+        $config['redmine']['password']
+    );
 
-$conduit = new \ConduitClient($config['phabricator']['host']);
-$conduit->setConduitToken($config['phabricator']['token']);
+    $conduit = new \ConduitClient($config['phabricator']['host']);
+    $conduit->setConduitToken($config['phabricator']['token']);
 
-$wizard = new Wizard($config, $redmine, $conduit);
-$wizard->run();
+    $wizard = new Wizard($config, $redmine, $conduit);
+    $wizard->run();
+} catch (\Exception $e) {
+    die($e->getMessage());
+}
