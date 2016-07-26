@@ -1,0 +1,52 @@
+<ruleset name="1024-standards">
+    <description>TenTwentyFour Coding Standards</description>
+    <!-- Date updated: April 16th 2016 (DR) -->
+
+    <!-- Using PSR2 as a base, with a couple of additional checks -->
+    <rule ref="PSR2"/>
+    <!-- PSR2 includes PSR-1 and many Generic, Squiz and Zend rulesets,
+    so if they're not listed here, they're probably already in PSR-2.
+    Please check before adding new rules or rulesets -->
+
+    <!-- Generic -->
+    <rule ref="Generic.PHP.DisallowShortOpenTag"/>
+    <rule ref="Generic.PHP.DeprecatedFunctions"/>
+    <rule ref="Generic.Formatting.SpaceAfterCast"/>
+    <rule ref="Generic.WhiteSpace.DisallowTabIndent" />
+    <rule ref="Generic.NamingConventions.ConstructorName"/>
+    <rule ref="Generic.NamingConventions.UpperCaseConstantName"/>
+    <rule ref="Generic.NamingConventions.CamelCapsFunctionName"/>
+    <rule ref="Generic.Strings.UnnecessaryStringConcat"/>
+    <rule ref="Generic.CodeAnalysis.UnusedFunctionParameter" />
+    <rule ref="Generic.Commenting.Fixme"/>
+    <rule ref="Generic.Commenting.Todo.CommentFound">
+        <message>Please review this TODO comment: %s</message>
+        <severity>3</severity>
+    </rule>
+
+    <!-- Squiz -->
+    <rule ref="Squiz.Commenting.DocCommentAlignment"/>
+    <!-- <rule ref="Squiz.ControlStructures.ElseIfDeclaration"/> -->
+    <rule ref="Squiz.ControlStructures.SwitchDeclaration">
+        <exclude name="Squiz.ControlStructures.SwitchDeclaration.BreakIndent"/>
+        <exclude name="Squiz.ControlStructures.SwitchDeclaration.SpacingAfterBreak"/>
+        <exclude name="Squiz.ControlStructures.SwitchDeclaration.SpacingAfterDefaultBreak"/>
+    </rule>
+    <rule ref="Squiz.ControlStructures.ForEachLoopDeclaration" />
+    <rule ref="Squiz.ControlStructures.ForLoopDeclaration" />
+    <rule ref="Squiz.Functions.FunctionDuplicateArgument"/>
+    <rule ref="Squiz.NamingConventions.ValidFunctionName">
+        <exclude name="Squiz.NamingConventions.ValidFunctionName.PrivateNoUnderscore"/>
+    </rule>
+    <rule ref="Squiz.PHP.CommentedOutCode"/>
+    <rule ref="Squiz.PHP.DisallowSizeFunctionsInLoops"/>
+    <rule ref="Squiz.PHP.DiscouragedFunctions"/>
+    <rule ref="Squiz.PHP.GlobalKeyword"/>
+    <rule ref="Squiz.PHP.LowercasePHPFunctions"/>
+    <rule ref="Squiz.PHP.NonExecutableCode"/>
+    <rule ref="Squiz.Scope.MemberVarScope"/>
+
+    <rule ref="PEAR.Commenting.InlineComment"/>
+    <rule ref="PEAR.ControlStructures.ControlSignature"/>
+    <rule ref="PEAR.ControlStructures.MultiLineCondition"/>
+</ruleset>

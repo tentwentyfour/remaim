@@ -50,7 +50,7 @@ class Wizard
     public function run()
     {
         try {
-            $this->testConnectionExistingProjectlist();
+            $this->testConnectionToRedmine();
             $this->project = $this->listRedmineProjects();
             $phab_project = $this->selectOrCreatePhabricatorProject();
             $this->identifyRedmineAndTargetphabricatorProject();
@@ -342,7 +342,7 @@ class Wizard
             );
 
             $phab_members = $this->getPhabricatorUserPhid($this->$conduit, $members);
-            
+
             $api_parameters = array(
               'constraints' => array(
                 'icons' => array(
@@ -395,14 +395,17 @@ class Wizard
         }
     }
 
-    private function testConnectionToRedmine()
+    public function testConnectionToRedmine()
     {
         // DR: can we find another, simpler method for checking connection than this?
         // Unfortunately, the Client does not have a way of checking whether the connection was successfull,
         // since it never established a connection.
         $project_listing = $this->redmine->project->listing();
         if (empty($project_listing)) {
-            die("\n" . 'Your project list is empty or we were unable to connect to redmine. Check your credentials!' . "\n");
+            throw new \InvalidArgumentException(
+                "Your project list is empty or we were unable to connect to redmine.\n
+                Please verify your credentials are correct!\n"
+            );
         }
     }
 
@@ -505,13 +508,12 @@ class Wizard
 
         return $this->getPhabricatorUserPhid($watchers);
     }
-}
 
-    private function findOrCreateTicketFromRedmineInPhab()
+    private function findOrCreateTicketFromRedmineInPhab($issues)
     {
          // * Once we have a list of all issues on the selected project from redmine,
          // * we will loop through them using array_map and add each issue to the
-         // * new project on phabricator 
+         // * new project on phabricator
         $phab_statuses = $this->conduit->callMethodSynchronous('maniphest.querystatuses', []);
         $status_map = $phab_statuses['statusMap'];
         $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priority_map, $config, $status_map) {
@@ -528,21 +530,22 @@ class Wizard
                 ]
             );
 
-        $api_parameters = [
-        'realnames' => [$details['issue']['author']['name']],
-        ];
-        $result = $this->conduit->callMethodSynchronous('user.query', $api_parameters);
-        $owner = array_pop($result);
+            $api_parameters = [
+            'realnames' => [$details['issue']['author']['name']],
+            ];
+            $result = $this->conduit->callMethodSynchronous('user.query', $api_parameters);
+            $owner = array_pop($result);
 
-        $description = str_replace("\r", '', $details['issue']['description']);
-        $api_parameters = [
-            'fullText' => $description,
-        ];
-        $tickets = $this->conduit->callMethodSynchronous('maniphest.query', $api_parameters);
+            $description = str_replace("\r", '', $details['issue']['description']);
+            $api_parameters = [
+                'fullText' => $description,
+            ];
+            $tickets = $this->conduit->callMethodSynchronous('maniphest.query', $api_parameters);
 
-        $this->CreateManiphestTask($tickets, $details, $description, $owner);
-        }
+            $this->CreateManiphestTask($tickets, $details, $description, $owner);
+        }, $issues);
     }
+}
 
 // /*
 
@@ -668,7 +671,7 @@ class Wizard
 //     }
 // }
 
-/***************************************************************
+/***************************************************************/
 
 // printf(
 //     'Redmine project named "%s" with ID %s' . "\n",
@@ -692,7 +695,7 @@ class Wizard
 // if (!($checking == 'y' || $checking == 'Y')) {
 //     die('bye'. "\n");
 // }
-/***************************************************************
+/***************************************************************/
 
 // // $project_issuerelation = $redmine->issuerelation->show($relation);
 // // var_dump($project_issuerelation);
@@ -716,7 +719,7 @@ class Wizard
 
 
 
-/***************************************************************
+/***************************************************************/
 
 //  * Once we have a list of all issues on the selected project from redmine,
 //  * we will loop through them using array_map and add each issue to the
@@ -754,7 +757,7 @@ class Wizard
 //     // var_dump($ticket);exit;
 
 
-***************************************************************
+/***************************************************************/
 
 //     if (!empty($tickets) && sizeof($tickets) === 1) {
 //         $ticket = array_pop($tickets);
@@ -781,7 +784,7 @@ class Wizard
 //         var_dump('task created is', $task);
 //     }
 
-***************************************************************
+/***************************************************************/
 
 //     /**
 //      * Is $task identical/similar to $ticket?
@@ -798,7 +801,7 @@ class Wizard
 //             ];
 //         };
 
-***************************************************************
+/***************************************************************/
 
 //         $file_ids = [];
 //         foreach ($details['issue']['attachments'] as $attachment) {
@@ -832,7 +835,7 @@ class Wizard
 //             'value' => sprintf("%s\n\n%s", $description, $files)
 //         ];
 
-***************************************************************
+/***************************************************************/
 
 //         // query phabricator => save to list
 //         $status = $details['issue']['status']['name'];
@@ -875,7 +878,7 @@ class Wizard
 //             'value' => $status,
 //         ];
 
-***************************************************************
+/***************************************************************/
 
 //         foreach ($details['issue']['journals'] as $journal) {
 //             if (!isset($journal['notes']) || empty($journal['notes'])) {
@@ -893,7 +896,7 @@ class Wizard
 //             ];
 //         }
 
-***************************************************************
+/***************************************************************/
 
 //         $subscribers = watchersToSubscribers($conduit, $details['issue']['watchers']);
 //         if (!empty($subscribers)) {
@@ -903,7 +906,7 @@ class Wizard
 //             ];
 //         }
 
-***************************************************************
+/***************************************************************/
 
 //         $prio = $details['issue']['priority']['name'];
 //         $priority = $priority_map[$prio];
@@ -938,7 +941,7 @@ class Wizard
 //             'value' => $prio,
 //         ];
 
-***************************************************************
+/***************************************************************/
 
 //         // todo:
 //         // priority    Change the priority of the task. //?
@@ -960,7 +963,7 @@ class Wizard
 //         $edit = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
 //     }
 
-***************************************************************
+/***************************************************************/
 
 
 
@@ -968,4 +971,3 @@ class Wizard
 
 //     // Make this nicer obviously ;)
 //     print_r($results);
-}

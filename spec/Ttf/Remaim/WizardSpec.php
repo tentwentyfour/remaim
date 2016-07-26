@@ -6,6 +6,7 @@ use Ttf\Remaim\Wizard;
 use PhpSpec\ObjectBehavior;
 use Prophecy\Argument;
 use Redmine\Client;
+use Redmine\Api\Project;
 
 // require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
 
@@ -17,7 +18,7 @@ class WizardSpec extends ObjectBehavior
      * @param
      * @return [type]
      */
-    public function let(Client $redmine)
+    public function let(Client $redmine, Project $project)
     {
         $config = [
             'redmine' => [
@@ -25,7 +26,7 @@ class WizardSpec extends ObjectBehavior
             'phabricator' => [
             ],
         ];
-        $conduit = [];
+        $conduit = new \stdClass();
         $this->beConstructedWith($config, $redmine, $conduit);
     }
 
@@ -34,9 +35,11 @@ class WizardSpec extends ObjectBehavior
         $this->shouldHaveType(Wizard::class);
     }
 
-    function it_exits_if_it_cannot_connect_to_redmine()
+    function it_exits_with_an_exception_if_it_cannot_connect_to_redmine(Client $redmine, Project $project)
     {
-
+        $redmine->api('project')->willReturn($project);
+        $project->listing()->shouldBeCalled();
+        $this->shouldThrow('\InvalidArgumentException')->duringTestConnectionToRedmine();
     }
 
     // function it_shows_a_list_of_the_projects(Wizard $project_create)

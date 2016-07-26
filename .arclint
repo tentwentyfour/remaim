@@ -1,0 +1,14 @@
+{
+  "linters": {
+    "phpcs": {
+      "type": "phpcs",
+      "bin": ["vendor/bin/phpcs"],
+      "include": "(\\.php$)",
+      "exclude": "(^vendor/)",
+      "flags" : [
+        "--standard=./phpcs.xml",
+        "--tab-width=4"
+      ]
+    }
+  }
+}
