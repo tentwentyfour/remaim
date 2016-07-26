@@ -14,7 +14,7 @@ class WizardSpec extends ObjectBehavior
 
     /**
      * @todo  Find a way to mock ConduitClient which is marked as final
-     * @param  
+     * @param
      * @return [type]
      */
     public function let(Client $redmine)
@@ -34,9 +34,9 @@ class WizardSpec extends ObjectBehavior
         $this->shouldHaveType(Wizard::class);
     }
 
-    function it_returns_foo_on_run()
+    function it_exits_if_it_cannot_connect_to_redmine()
     {
-        $this->run()->shouldReturn('foo');
+
     }
 
     // function it_shows_a_list_of_the_projects(Wizard $project_create)
@@ -51,5 +51,5 @@ class WizardSpec extends ObjectBehavior
 
         $this->toHtmlFromReader($reader)->shouldReturn("<p>Hi, there</p>");
     } */
-    
+
 }
