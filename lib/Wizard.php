@@ -50,19 +50,89 @@ class Wizard
     public function run()
     {
         try {
-            $this->testConnection_existingProjectlist();
+            $this->testConnectionExistingProjectlist();
             $this->project = $this->listRedmineProjects();
-            $phab_project = $this->selectOrCreate_PhabricatorProject();
-            $this->identify_redmine_and_targetphabricator_project();
-            $this->findOrCreate_ticket_from_redmine_in_phab();
-            // ...
+            $phab_project = $this->selectOrCreatePhabricatorProject();
+            $this->identifyRedmineAndTargetphabricatorProject();
+            $this->findOrCreateTicketFromRedmineInPhab();
+            print_r($results);
         } catch (\Exception $e) {
             die($e->getMessage());
         }
 
     }
 
-    private function transact_comments($details)
+    private function updatePhabTicket($ticket)
+    {
+        // todo:
+        // priority    Change the priority of the task. 
+        // view    Change the view policy of the object. 
+        // edit    Change the edit policy of the object. 
+        // subscribers.set Set subscribers, overwriting current value. 
+        //  - refactor code into functions 
+        //  - fix status array problem 
+        //  - list of phabricator projects 
+
+        /**
+         * Now update the ticket with additional information (comments, attachments, relations, subscribers, etc)*/
+         
+        $api_parameters = [
+          'objectIdentifier' => $ticket['phid'],
+          'transactions' => $this->transactions
+        ];
+
+        $edit = $this->conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
+    
+    }
+
+    private function transactPriority($details)
+    {
+        $prio = $details['issue']['priority']['name'];
+        $priority = $this->priority_map[$prio];
+        if (!$priority) {
+            printf('We could not find a matching priority for your priority "%s"!' . "\n> ", $prio);
+            foreach ($this->priority_map as $priority2 => $value) {
+                printf("%s\n", $priority2);
+            }
+
+            printf('Press [1] to add %s to the map_list; [2] if you want to give it a value from the map_list');
+            $fp = fopen('php://stdin', 'r');
+            $map_check = trim(fgets($fp, 1024));
+            fclose($fp);
+
+            if ($map_check == '1') {
+                $this->priority_map = $prio;
+            }
+            elseif ($map_check == '2') {
+                printf('Enter the wished value!');
+                $fp = fopen('php://stdin', 'r');
+                $new_value = trim(fgets($fp, 1024));
+                fclose($fp);
+                $prio = $new_value;
+
+            }
+
+            $newpriority = $prio;
+        }
+
+        $transactions[] = [
+            'type' => 'priority',
+            'value' => $newpriority,
+        ];
+    }
+
+    private function transactSubscriber($details)
+    {
+        $subscribers = $this->watchersToSubscribers($this->conduit, $details['issue']['watchers']);
+        if (!empty($subscribers)) {
+            $this->transactions = [
+                'type' => 'subscribers.set',
+                'value' => $subscribers,
+            ];
+        }
+    }
+
+    private function transactComments($details)
     {
         foreach ($details['issue']['journals'] as $journal) {
             if (!isset($journal['notes']) || empty($journal['notes'])) {
@@ -81,7 +151,7 @@ class Wizard
         }   
     }
 
-    private function transact_status($details, $status_map)
+    private function transactStatus($details, $status_map)
     {
         // query phabricator => save to list
         $status = $details['issue']['status']['name'];
@@ -122,7 +192,7 @@ class Wizard
         ];
     }
 
-    private function transact_files($details, $description)
+    private function transactFiles($details, $description)
     {
         $file_ids = [];
         foreach ($details['issue']['attachments'] as $attachment) {
@@ -151,20 +221,20 @@ class Wizard
         }    
         
         $files = implode(' ', $file_ids);
-        $this->transactions[] = [
+        $this->transactions = [
             'type' => 'description',
             'value' => sprintf("%s\n\n%s", $description, $files)
         ];
     }
 
-    private function transact_title($ticket, $details)
+    private function transactTitle($details, $title)
     {
         // * Is $task identical/similar to $ticket?
         // DR: or !empty $task?
         if (!empty($ticket) && isset($ticket['phid']))
         {
             if ($ticket['title'] !== $details['issue']['subject']) {
-                $this->transactions[] = [
+                $this->transactions = [
                     'type' => 'title',
                     'value' => $details['issue']['subject'],
                 ];
@@ -173,13 +243,17 @@ class Wizard
         
     }
 
-    private function search_for_phabticket($tickets, $details, $description, $owner)
+    private function searchForPhabticket($tickets, $details, $description, $owner)
     {
         if (!empty($tickets) && sizeof($tickets) === 1) {
             $ticket = array_pop($tickets);
-            $this->transact_title($details, $title);
-            $this->transact_files($details, $description);
-            $this->transact_status($details, $status_map);
+            $this->transactTitle($details, $title);
+            $this->transactFiles($details, $description);
+            $this->transactStatus($details, $status_map);
+            $this->transactComments($details);
+            $this->transactSubscriber($details);
+            $this->transactPriority($details);
+            $this->updatePhabTicket($ticket);
         } else {
             var_dump($tickets);
             die('Argh, more than one ticket found, need to do something about this.'. "\n");
@@ -203,7 +277,7 @@ class Wizard
         }
     }
 
-    private function findOrCreate_ticket_from_redmine_in_phab()
+    private function findOrCreateTicketFromRedmineInPhab()
     {
          // * Once we have a list of all issues on the selected project from redmine,
          // * we will loop through them using array_map and add each issue to the
@@ -236,12 +310,12 @@ class Wizard
         ];
         $tickets = $this->conduit->callMethodSynchronous('maniphest.query', $api_parameters);
 
-        $this->search_for_phabticket($tickets, $details, $description, $owner);
+        $this->searchForPhabticket($tickets, $details, $description, $owner);
     }
 
-    private function identify_redmine_and_targetphabricator_project()
+    private function identifyRedmineAndTargetphabricatorProject()
     {
-        $this->list_issues_and_projectdetails();
+        $this->listIssuesAndProjectdetails();
 
         printf(
             'Redmine project named "%s" with ID %s' . "\n",
@@ -268,7 +342,7 @@ class Wizard
         }
     }
 
-    private function list_issues_and_projectdetails()
+    private function listIssuesAndProjectdetails()
     {
         $tasks = $this->redmine->issue->all([
             'project_id' => $this->project,
@@ -284,7 +358,7 @@ class Wizard
         $this->issues = $tasks['issues'];
     }
 
-    private function selectOrCreate_PhabricatorProject()
+    private function selectOrCreatePhabricatorProject()
     {
         print("Please enter the id/slug of the project in phabricator.\n Press [Enter] to see a list of available projects or\n enter [0] to create a new project from the Redmine project's details\n> ");
         $fp = fopen('php://stdin', 'r');
@@ -326,17 +400,17 @@ class Wizard
                 $api_parameters = [
                     'ids' => [$phab_project],
                 ];
-                $this->find_phab_project_with_id_slug($api_parameters);
+                $this->findPhabProjectWithIdSlug($api_parameters);
             } else {
                 $api_parameters = [
                      'slugs' => [$phab_project],
                 ];
-                $this->find_phab_project_with_id_slug($api_parameters);
+                $this->findPhabProjectWithIdSlug($api_parameters);
             }
         }
     }      
 
-    private function find_phab_project_with_id_slug($api_parameters)
+    private function findPhabProjectWithIdSlug($api_parameters)
     {
         $result = $this->conduit->callMethodSynchronous('project.query', $api_parameters);
         $this->found = array_pop($result['data']);
@@ -350,7 +424,7 @@ class Wizard
         }
     }
 
-    private function testConnection_existingProjectlist()
+    private function testConnectionExistingProjectlist()
     {
         // DR: can we find another, simpler method for checking connection than this?
         // Unfortunately, the Client does not have a way of checking whether the connection was successfull,
@@ -810,7 +884,7 @@ class Wizard
 //             ];
 //         }   
 
-******************************HERE*********************************     
+***************************************************************     
         
 //         $subscribers = watchersToSubscribers($conduit, $details['issue']['watchers']);
 //         if (!empty($subscribers)) {
@@ -819,6 +893,8 @@ class Wizard
 //                 'value' => $subscribers,
 //             ];
 //         }
+
+***************************************************************
 
 //         $prio = $details['issue']['priority']['name'];
 //         $priority = $priority_map[$prio];
@@ -853,6 +929,7 @@ class Wizard
 //             'value' => $prio,
 //         ];
     
+***************************************************************
 
 //         // todo:
 //         // priority    Change the priority of the task. //?
@@ -874,7 +951,7 @@ class Wizard
 //         $edit = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
 //     }
 
-
+***************************************************************
 
 
 
