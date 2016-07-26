@@ -55,7 +55,6 @@ class Wizard
             $phab_project = $this->selectOrCreatePhabricatorProject();
             $this->identifyRedmineAndTargetphabricatorProject();
             $this->findOrCreateTicketFromRedmineInPhab();
-            print_r($results);
         } catch (\Exception $e) {
             die($e->getMessage());
         }
@@ -331,7 +330,6 @@ class Wizard
 
         if ('0' === $phab_project) {
 
-
             $detail = $this->redmine->project->show($this->project);
             $memberships = $this->redmine->membership->all($this->project);
             $members = array_filter(
@@ -343,7 +341,7 @@ class Wizard
                 }
             );
 
-            $phab_members = $this->getPhabricatorUserPhid($this->$conduit, $members);
+            $phab_members = $this->getPhabricatorUserPhid($members);
             
             $api_parameters = array(
               'constraints' => array(
@@ -445,7 +443,7 @@ class Wizard
         if (isset($project['parent'])) {
             return sprintf("\t%s", $this->representProject($project));
         } else {
-            return sprintf("[%d]\t[%s]\n", $$project['id'], $$project['name']);
+            return sprintf("[%d]\t[%s]\n", $project['id'], $project['name']);
         }
     }
 
@@ -542,8 +540,10 @@ class Wizard
         $tickets = $this->conduit->callMethodSynchronous('maniphest.query', $api_parameters);
 
         $this->CreateManiphestTask($tickets, $details, $description, $owner);
-        }
+        }, $issues);
+        // Make this nicer obviously ;)
     }
+}
 
 // /*
 
@@ -554,10 +554,7 @@ class Wizard
 // if (empty($project_listing)) {
 //     die("\n" . 'Your project list is empty or we were unable to connect to redmine. Check your credentials!' . "\n");
 // }
-
-/***************************************************************
-
-
+/*
 // // Which project should get permissions on the newly created projects and tickets?
 // // 
 
