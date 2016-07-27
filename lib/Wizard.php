@@ -47,10 +47,12 @@ class Wizard
     {
         try {
             $this->testConnectionToRedmine();
-            $redmine_project = $this->listRedmineProjects();
-            $phab_project = $this->selectOrCreatePhabricatorProject($redmine_project);
+            $projects = $this->listRedmineProjects();
+            $redmine_project = $this->selectAProject($projects);
+            $phab_project = $this->selectOrCreatePhabricatorProject();
+            $this->doSelectProject($phab_project, $redmine_project);
             // ????
-            $this->identifyRedmineAndTargetphabricatorProject();
+            $this->identifyRedmineAndTargetphabricatorProject($redmine_project);
             $this->findOrCreateTicketFromRedmineInPhab();
             print_r($results);
         } catch (\Exception $e) {
@@ -68,13 +70,13 @@ class Wizard
         // Unfortunately, the Client does not have a way of checking whether the connection was successfull,
         // since it never established a connection.
         $project_listing = $this->redmine->project->listing();
-        if (empty($project_listing)) {
+        if (empty($project_listing) || !is_array($project_listing)) {
             throw new \InvalidArgumentException(
                 "Your project list is empty or we were unable to connect to redmine.\n
                 Please verify your credentials are correct!\n"
             );
         }
-        // else {return true;} (for tests)
+        return true;
     }
 
     private function updatePhabTicket($ticket)
@@ -100,7 +102,7 @@ class Wizard
 
     }
 
-
+   
 
     private function createManiphestTask($tickets, $details, $description, $owner)
     {
@@ -141,14 +143,15 @@ class Wizard
         }
     }
 
-    private function identifyRedmineAndTargetphabricatorProject()
+    private function identifyRedmineAndTargetphabricatorProject($redmine_project)
     {
-        $this->listIssuesAndProjectdetails();
+        $this->listIssuesAndProjectdetails($redmine_project);
+        $project_detail = $this->redmine->project->show($redmine_project);
 
         printf(
             'Redmine project named "%s" with ID %s' . "\n",
-            $this->project_detail['project']['name'],
-            $this->project
+            $project_detail['project']['name'],
+            $redmine_project
         );
 
         printf(
@@ -170,22 +173,23 @@ class Wizard
         }
     }
 
-    public function listIssuesAndProjectdetails()
+    public function listIssuesAndProjectdetails($redmine_project)
     {
         $tasks = $this->redmine->issue->all([
-            'project_id' => $this->project,
+            'project_id' => $redmine_project,
             'limit' => 1024
         ]);
 
         // DR: this is never used here
-        // $this->project_detail = $this->redmine->project->show($this->project);
+        // project_detail = $this->redmine->project->show($redmine_project);
 
         if (!$tasks || empty($tasks['issues'])) {
-            printf('No tasks found on project %s', $this->project. "\n");
+            printf('No tasks found on project %s', $redmine_project. "\n");
         }
         // DR: would be better to return $tasks['issues'];
         // then to assign them on the class level.
-        $this->issues = $tasks['issues']; return true;
+        $issues = $tasks['issues'];
+        return $issues;
     }
 
     private function selectOrCreatePhabricatorProject()
@@ -194,14 +198,14 @@ class Wizard
         $fp = fopen('php://stdin', 'r');
         $phab_project = trim(fgets($fp, 1024));
         fclose($fp);
-        print(dom);
+        return $phab_project;
     }
 
-    public function doSelectProject()
+    public function doSelectProject($phab_project, $redmine_project) 
     {
         if ('0' === $phab_project) {
-            $detail = $this->redmine->project->show($this->project);
-            $memberships = $this->redmine->membership->all($this->project);
+            $detail = $this->redmine->project->show($redmine_project);
+            $memberships = $this->redmine->membership->all($redmine_project);
             $members = array_filter(
                 array_map(function ($relation) {
                     return isset($relation['user']) ? $relation['user']['name'] : null;
@@ -282,63 +286,86 @@ class Wizard
         }
     }
 
-    private function listRedmineProjects()
+    public function listRedmineProjects()
     {
         // Which project should get permissions on the newly created projects and tickets?
         // First list available projects, then allow the user to select one
         $reply = $this->redmine->project->all(['limit' => 1024]);
-        printf('%d total projects retrieved from your redmine instance.', $reply['total_count'][0]);
+        printf(
+            '%d total projects retrieved from your redmine instance.', 
+            $reply['total_count'][0]
+        );
         $projects = $reply['projects'];
 
-        $projects = array_reduce($projects, function ($container, $project) {
-            if (isset($project['parent'])) {
-                $container = $this->addToProject($container, $project);
-            } else {
-                $container[$project['id']] = $project;
-            }
-            return $container;
-        }, []);
+        $projects = $this->build_tree($projects);
+
+        // $projects = array_reduce($projects, function ($container, $project) {
+        //     if (isset($project['parent'])) {
+        //         $container = $this->addToProject($container, $project);
+        //     } else {
+        //         $container[$project['id']] = $project;
+        //     }
+        //     return $container;
+        // }, []);
+
 
         // use ($sortkey) from $argv to allow to sort by name or by id?
         usort($projects, function ($a, $b) {
             return $a['id'] > $b['id'];
         });
+        return $projects;
+    }
+
+    function build_tree(&$projects, $parent = 0, &$handled = [])
+    {
+        $tmp_array = [];
+        foreach ($projects as $project) {
+            if (!in_array($project['id'], $handled) 
+                && (!isset($project['parent']) || $project['parent']['id'] == $parent)
+            ) {
+                $handled[] = $project['id'];
+                $project['children'] = $this->build_tree($projects, $project['id'], $handled);
+                $tmp_array[] = $project;
+            }
+        }
+        // You *could* sort the temp array here if you wanted.
+        return $tmp_array;
+    }
+
+    private function representProject($project)
+    {
+        if (!empty($project['children'])) {
+            return $this->representProject($project);
+        } else {
+            return sprintf(
+                "[%d]\t[%s]\n", 
+                $project['id'], 
+                $project['name']
+            );
+        }
+    }
+
+    // private function addToProject($container, $project)
+    // {
+    //     return array_map(function ($parent, $key) use ($project) {
+    //         if ($key == $project['parent']['id']) {
+    //             return $parent['children'][] = $project;
+    //         } else {
+    //             return $this->addToProject($parent['children'], $project);
+    //         }
+    //     }, $container, array_keys($container));
+    // }
+
+    public function selectAProject($projects)
+    {
         foreach ($projects as $project) {
             print($this->representProject($project));
         }
-
-        $project = $this->selectAProject();
-    }
-
-    private function selectAProject()
-    {
         print('Select a project: [0] ' . "\n> ");
         $fp = fopen('php://stdin', 'r');
         $project = trim(fgets($fp, 1024));
         fclose($fp);
         return $project;
-    }
-
-    private function representProject($project)
-    {
-        var_dump($project);
-        if (isset($project['parent'])) {
-            return sprintf("\t%s", $this->representProject($project));
-        } else {
-            return sprintf("[%d]\t[%s]\n", $$project['id'], $$project['name']);
-        }
-    }
-
-    private function addToProject($container, $project)
-    {
-        return array_map(function ($slot, $key) use ($project) {
-            if ($key == $project['parent']['id']) {
-                $slot = $$project;
-            } else {
-                //return addToProject($container, ...)  should have finished this …
-            }
-            return $slot;
-        }, $container, array_keys($container));
     }
 
     /**
