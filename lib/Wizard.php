@@ -357,17 +357,17 @@ class Wizard
                 'members' => $phab_members,
                 'viewPolicy' => $constrain,
             ];
-            $found = $this->conduit->callMethodSynchronous('project.create', $api_parameters);
+            $this->found = $this->conduit->callMethodSynchronous('project.create', $api_parameters);
             
             // TO BE FINISHED
-            // printf('OK, created project "%s" with phid %s')
+            // printf('OK, created project "%s" with phid %s', $this->found['name'], $this->found['phid'])
 
         } elseif ('' === $phab_project) {
             // TO BE FINISHED
             
         } else { 
 
-             if (is_numeric($phab_project)) {
+            if (is_numeric($phab_project)) {
                 $api_parameters = [
                     'ids' => [$phab_project],
                 ];
