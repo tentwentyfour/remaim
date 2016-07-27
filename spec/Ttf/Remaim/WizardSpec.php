@@ -1,26 +1,34 @@
 <?php
+/**
+ * PhpSpec file for Remaim
+ */
 
 namespace spec\Ttf\Remaim;
 
-use Ttf\Remaim\Wizard;
 use PhpSpec\ObjectBehavior;
 use Prophecy\Argument;
+use Mockery as m;
+
+use Ttf\Remaim\Wizard;  // Class under test
+
 use Redmine\Client;
 use Redmine\Api\Project;
 
-// require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
+
+require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
 
 class WizardSpec extends ObjectBehavior
 {
 
+    private $conduit;   // mock of ConduitClient
+
     /**
-     * @todo  Find a way to mock ConduitClient which is marked as final
-     * PhpSpec/Prophecy sucks… maybe Mockery is better?
-     * See http://docs.mockery.io/en/latest/
+     *
+     * "The class \ConduitClient is marked final and its methods cannot be replaced. Classes marked final can be passed in to \Mockery::mock() as instantiated objects to create a partial mock, but only if the mock is not subject to type hinting checks.
      *
      * @return void
      */
-    public function let(Client $redmine, Project $project, \stdClass $conduit)
+    public function let(Client $redmine, Project $project)
     {
         $config = [
             'redmine' => [
@@ -28,8 +36,14 @@ class WizardSpec extends ObjectBehavior
             'phabricator' => [
             ],
         ];
-        // $conduit = new \stdClass();
-        $this->beConstructedWith($config, $redmine, $conduit);
+        // Proxied partial mock, see http://docs.mockery.io/en/latest/reference/partial_mocks.html#proxied-partial-mock
+        $this->conduit = m::mock(new \ConduitClient('https://localhost'));
+        $this->beConstructedWith($config, $redmine, $this->conduit);
+    }
+
+    public function letGo()
+    {
+        m::close();
     }
 
     function it_is_initializable()
@@ -60,14 +74,24 @@ class WizardSpec extends ObjectBehavior
         $this->shouldThrow('\InvalidArgumentException')->duringTestConnectionToRedmine();
     }
 
-    function xit_should_be_able_to_look_up_a_phabricator_project_by_its_id(\stdClass $conduit)
+    function it_should_be_able_to_look_up_a_phabricator_project_by_its_id()
     {
+        $lookup = [
+            'ids' => [1]
+        ];
         $project_array = [
             'phid' => 'test-phid',
             'name' => 'test-project-name',
         ];
-        $conduit->callMethodSynchronous()->willReturn($project_array);
-        $this->findPhabProjectWithIdSlug()->shouldReturn($project_array);
+        $query_result = [
+            'data' => [$project_array],
+        ];
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('project.query', $lookup)
+        ->times(1)
+        ->andReturn($query_result);
+        $this->findPhabProjectWithIdSlug($lookup)->shouldReturn($project_array);
     }
 
     function it_should_return_a_list_of_projects(Client $redmine, Project $project)

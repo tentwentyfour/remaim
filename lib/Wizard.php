@@ -100,7 +100,7 @@ class Wizard
 
     }
 
-   
+
 
     private function createManiphestTask($tickets, $details, $description, $owner)
     {
@@ -197,7 +197,7 @@ class Wizard
         print(dom);
     }
 
-    public function doSelectProject() 
+    public function doSelectProject()
     {
         if ('0' === $phab_project) {
             $detail = $this->redmine->project->show($this->project);
