@@ -72,7 +72,7 @@ class WizardSpec extends ObjectBehavior
 
     function it_should_return_a_list_of_projects(Client $redmine, Project $project)
     {
-        $redmine->api('project')->willReturn($project);
+        $redmine->api('issue')->willReturn($project);
         $project->all()->shouldBeCalled();
     }
 
