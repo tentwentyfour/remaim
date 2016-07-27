@@ -9,6 +9,8 @@ use Redmine\Api\Issue;
 
 class Wizard
 {
+    use Traits\Transactions;
+
     private $phabricator_users = [];
     private $config;
     private $redmine;
@@ -33,7 +35,6 @@ class Wizard
      // Wishlist
     ];
 
-    //
     // @todo   \ConduitClient
     public function __construct(array $config, \Redmine\Client $redmine, $conduit)
     {
@@ -55,6 +56,25 @@ class Wizard
         } catch (\Exception $e) {
             die($e->getMessage());
         }
+    }
+
+    /**
+     * [testConnectionToRedmine description]
+     * @return [type] [description]
+     */
+    public function testConnectionToRedmine()
+    {
+        // DR: can we find another, simpler method for checking connection than this?
+        // Unfortunately, the Client does not have a way of checking whether the connection was successfull,
+        // since it never established a connection.
+        $project_listing = $this->redmine->project->listing();
+        if (empty($project_listing)) {
+            throw new \InvalidArgumentException(
+                "Your project list is empty or we were unable to connect to redmine.\n
+                Please verify your credentials are correct!\n"
+            );
+        }
+        // else {return true;} (for tests)
     }
 
     private function updatePhabTicket($ticket)
@@ -80,175 +100,23 @@ class Wizard
 
     }
 
-    private function transactPriority($details)
-    {
-        $prio = $details['issue']['priority']['name'];
-        $priority = $this->priority_map[$prio];
-        if (!$priority) {
-            printf('We could not find a matching priority for your priority "%s"!' . "\n> ", $prio);
-            foreach ($this->priority_map as $priority2 => $value) {
-                printf("%s\n", $priority2);
-            }
-
-            printf('Press [1] to add %s to the map_list; [2] if you want to give it a value from the map_list');
-            $fp = fopen('php://stdin', 'r');
-            $map_check = trim(fgets($fp, 1024));
-            fclose($fp);
-
-            if ($map_check == '1') {
-                $this->priority_map = $prio;
-            }
-            elseif ($map_check == '2') {
-                printf('Enter the wished value!');
-                $fp = fopen('php://stdin', 'r');
-                $new_value = trim(fgets($fp, 1024));
-                fclose($fp);
-                $prio = $new_value;
-
-            }
-
-            $newpriority = $prio;
-        }
-
-        $transactions[] = [
-            'type' => 'priority',
-            'value' => $newpriority,
-        ];
-    }
-
-    private function transactSubscriber($details)
-    {
-        $subscribers = $this->watchersToSubscribers($this->conduit, $details['issue']['watchers']);
-        if (!empty($subscribers)) {
-            $this->transactions = [
-                'type' => 'subscribers.set',
-                'value' => $subscribers,
-            ];
-        }
-    }
-
-    private function transactComments($details)
-    {
-        foreach ($details['issue']['journals'] as $journal) {
-            if (!isset($journal['notes']) || empty($journal['notes'])) {
-            continue;
-            }
-            $comment = sprintf(
-            "%s originally wrote:\n> %s",
-            $journal['user']['name'],
-            $journal['notes']
-            );
-
-            $this->transactions = [
-                'type' => 'comment',
-                'value' => $comment,
-            ];
-        }
-    }
-
-    private function transactStatus($details, $status_map)
-    {
-        // query phabricator => save to list
-        $status = $details['issue']['status']['name'];
-        $key = array_search($status, $status_map);
-
-        if (!$key) {
-            printf('We could not find a matching key for your status "%s"!' . "\n> ", $status);
-            foreach ($status_map as $key => $value) {
-                printf("%s\n", $key);
-            }
-            printf(
-                'Press [1] to add "%s" to the map_list; [2] if you want to give it a value from the map_list',
-                $status
-            );
-            $fp = fopen('php://stdin', 'r');
-            $map_check = trim(fgets($fp, 1024));
-            fclose($fp);
-
-            if ($map_check == '1') {
-                $status_map[] = $status;
-            }
-            elseif ($map_check == '2') {
-                printf('Enter the wished value!');
-                $fp = fopen('php://stdin', 'r');
-                $new_value = trim(fgets($fp, 1024));
-                fclose($fp);
-                $status = $new_value;
-
-            }
-        }
-
-        // this does not work
-        // save new mapping to list
-
-        $this->transactions = [
-            'type' => 'status',
-            'value' => $status,
-        ];
-    }
-
-    private function transactFiles($details, $description)
-    {
-        $file_ids = [];
-        foreach ($details['issue']['attachments'] as $attachment) {
-            $url = preg_replace(
-                '/http(s?):\/\//',
-                sprintf(
-                    'https://%s:%s@',
-                    $this->config['redmine']['user'],
-                    $this->config['redmine']['password']
-                ),
-                $attachment['content_url']
-            );
-
-            $encoded = base64_encode(file_get_contents($url));
-            $api_parameters = [
-                'name' => $attachment['filename'],
-                'data_base64' => $encoded
-               // 'viewPolicy' => todo!
-            ];
-            $file_phid = $this->conduit->callMethodSynchronous('file.upload', $api_parameters);
-            $api_parameters = array(
-              'phid' => $file_phid,
-            );
-            $result = $this->conduit->callMethodSynchronous('file.info', $api_parameters);
-            $file_ids[] = sprintf('{%s}', $result['objectName']);
-        }
-
-        $files = implode(' ', $file_ids);
-        $this->transactions = [
-            'type' => 'description',
-            'value' => sprintf("%s\n\n%s", $description, $files)
-        ];
-    }
-
-    private function transactTitle($details, $ticket)
-    {
-        // * Is $task identical/similar to $ticket?
-        // DR: or !empty $task?
-        if (!empty($ticket) && isset($ticket['phid']))
-        {
-            if ($ticket['title'] !== $details['issue']['subject']) {
-                $this->transactions = [
-                    'type' => 'title',
-                    'value' => $details['issue']['subject'],
-                ];
-            }
-        }
-
-    }
+   
 
     private function createManiphestTask($tickets, $details, $description, $owner)
     {
         if (!empty($tickets) && sizeof($tickets) === 1) {
             $ticket = array_pop($tickets);
-            $this->transactTitle($details, $title);
-            $this->transactFiles($details, $description);
-            $this->transactStatus($details, $status_map);
-            $this->transactComments($details);
-            $this->transactSubscriber($details);
-            $this->transactPriority($details);
-            $this->updatePhabTicket($ticket);
+            $transactions = [];
+            $transactions[] = $this->transactTitle($details, $title);
+            $transactions[] = $this->transactFiles($details, $description);
+            $transactions[] = $this->transactStatus($details, $status_map);
+            $transactions[] = $this->transactComments($details);
+            $transactions[] = $this->transactSubscriber($details);
+            $transactions[] = $this->transactPriority($details);
+            $transactions = array_filter($transactions, function ($transaction) {
+                return !empty($transaction);
+            });
+            $this->updatePhabTicket($ticket, $transactions);
         } else {
             var_dump($tickets);
             die('Argh, more than one ticket found, need to do something about this.'. "\n");
@@ -302,7 +170,7 @@ class Wizard
         }
     }
 
-    private function listIssuesAndProjectdetails()
+    public function listIssuesAndProjectdetails()
     {
         $tasks = $this->redmine->issue->all([
             'project_id' => $this->project,
@@ -317,7 +185,7 @@ class Wizard
         }
         // DR: would be better to return $tasks['issues'];
         // then to assign them on the class level.
-        $this->issues = $tasks['issues'];
+        $this->issues = $tasks['issues']; return true;
     }
 
     private function selectOrCreatePhabricatorProject()
@@ -326,7 +194,11 @@ class Wizard
         $fp = fopen('php://stdin', 'r');
         $phab_project = trim(fgets($fp, 1024));
         fclose($fp);
+        print(dom);
+    }
 
+    public function doSelectProject() 
+    {
         if ('0' === $phab_project) {
             $detail = $this->redmine->project->show($this->project);
             $memberships = $this->redmine->membership->all($this->project);
@@ -408,25 +280,6 @@ class Wizard
                 return $found;
             }
         }
-        return false;
-    }
-
-    /**
-     * [testConnectionToRedmine description]
-     * @return [type] [description]
-     */
-    public function testConnectionToRedmine()
-    {
-        // DR: can we find another, simpler method for checking connection than this?
-        // Unfortunately, the Client does not have a way of checking whether the connection was successfull,
-        // since it never established a connection.
-        $project_listing = $this->redmine->project->listing();
-        if (empty($project_listing)) {
-            throw new \InvalidArgumentException(
-                "Your project list is empty or we were unable to connect to redmine.\n
-                Please verify your credentials are correct!\n"
-            );
-        }
     }
 
     private function listRedmineProjects()
@@ -454,10 +307,16 @@ class Wizard
             print($this->representProject($project));
         }
 
+        $project = $this->selectAProject();
+    }
+
+    private function selectAProject()
+    {
         print('Select a project: [0] ' . "\n> ");
         $fp = fopen('php://stdin', 'r');
-        $this->project = trim(fgets($fp, 1024));
+        $project = trim(fgets($fp, 1024));
         fclose($fp);
+        return $project;
     }
 
     private function representProject($project)
