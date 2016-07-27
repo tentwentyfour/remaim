@@ -1,54 +1,22 @@
 <?php
 
-$struct = [
-    [
-        'id' => 1,
-        'name' =>  'parent',
-    ],
-    [
-        'id' => 2,
-        'name' => 'child',
-        'parent' => [
-            'id' => 1,
-            'name' => 'parent'
-        ]
-    ],
-    [
-        'id' => 3,
-        'name' => 'grandchild',
-        'parent' => [
-            'id' => 2,
-            'name' => 'child'
-        ]
-    ]
-];
+$projects = redmine->projects->all();
 
-$container = [];
-
-function mapThatShit($container, $item) {
-    return array_map(function ($slot) use ($item) {
-        // var_dump('is', $item['parent'], $slot);
-        // If the parent id matches the slot id, we're a direct child
-        // and can be added to this parent
-        if ($item['parent']['id'] === $slot['id']) {
-            $slot['children'][] = $item;
-        } else {
-            // if not, then we're a child's child and… it's even possible that our parent doesn't have a slot yet…
+$level = 0;
+$parents = [];
+while (!empty($projects)) {
+    $num_projects = sizeof($projects);
+    for ($i = 0; $i < $num_projects; $i++) {
+        $project = $projects[$i];
+        if (!isset($project['parent'])) {
+            $project['children'] = [];
+            $parents[$project['id']] = $project;
+            unset($projects[$i]);
+        } elseif ($level > 0) {
+            if (array_key_exists($project['parent']['id'], $parents)) {
+                $parents[$project['parent']['id']]['children'][] = $project;
+            }
         }
-        return $slot;
-    }, $container);
-
-    // var_dump($struct, $container, $container2);
-}
-
-array_walk($struct, function ($item, $key) use (&$container) {
-    // var_dump('before', $container);
-    if (isset($item['parent'])) {
-        $container = mapThatShit($container, $item);
-    } else {
-        $container[] = $item;
     }
-    // var_dump('after', $container);
-}, []);
-
-var_dump($container);
+    $level++;
+}
