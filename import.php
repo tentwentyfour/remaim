@@ -1,6 +1,6 @@
 <?php
 /**
- * 
+ *
  */
 
 // There is a composer package for libphutil, but it's unofficial and not 100% compatible:

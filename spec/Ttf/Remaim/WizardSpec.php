@@ -6,6 +6,7 @@ use Ttf\Remaim\Wizard;
 use PhpSpec\ObjectBehavior;
 use Prophecy\Argument;
 use Redmine\Client;
+use Redmine\Api\Project;
 
 // require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
 
@@ -14,10 +15,12 @@ class WizardSpec extends ObjectBehavior
 
     /**
      * @todo  Find a way to mock ConduitClient which is marked as final
-     * @param  
-     * @return [type]
+     * PhpSpec/Prophecy sucks… maybe Mockery is better?
+     * See http://docs.mockery.io/en/latest/
+     *
+     * @return void
      */
-    public function let(Client $redmine)
+    public function let(Client $redmine, Project $project, \stdClass $conduit)
     {
         $config = [
             'redmine' => [
@@ -25,7 +28,7 @@ class WizardSpec extends ObjectBehavior
             'phabricator' => [
             ],
         ];
-        $conduit = [];
+        // $conduit = new \stdClass();
         $this->beConstructedWith($config, $redmine, $conduit);
     }
 
@@ -34,10 +37,24 @@ class WizardSpec extends ObjectBehavior
         $this->shouldHaveType(Wizard::class);
     }
 
-    function it_returns_foo_on_run()
+    function it_exits_with_an_exception_if_it_cannot_connect_to_redmine(Client $redmine, Project $project)
     {
-        $this->run()->shouldReturn('foo');
+        $redmine->api('project')->willReturn($project);
+        $project->listing()->shouldBeCalled();
+        $this->shouldThrow('\InvalidArgumentException')->duringTestConnectionToRedmine();
     }
+
+    function it_should_be_able_to_look_up_a_phabricator_project_by_its_id(\stdClass $conduit)
+    {
+        $project_array = [
+            'phid' => 'test-phid',
+            'name' => 'test-project-name',
+        ];
+        $conduit->callMethodSynchronous()->willReturn($project_array);
+        $this->findPhabProjectWithIdSlug()->shouldReturn($project_array);
+    }
+
+
 
     // function it_shows_a_list_of_the_projects(Wizard $project_create)
     // {
@@ -51,5 +68,5 @@ class WizardSpec extends ObjectBehavior
 
         $this->toHtmlFromReader($reader)->shouldReturn("<p>Hi, there</p>");
     } */
-    
+
 }

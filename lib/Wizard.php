@@ -7,18 +7,20 @@ namespace Ttf\Remaim;
 
 use Redmine\Api\Issue;
 
-class Wizard 
+class Wizard
 {
     private $phabricator_users = [];
     private $config;
     private $redmine;
     private $conduit;
 
-    private $project;
-    private $found;
-    private $project_detail;
-    private $issues;
-    private $transactions = [];
+    // DR: Dont put properties on the global level unless
+    // absolutely necessary!
+    // private $project;
+    // private $found;
+    // private $project_detail;
+    // private $issues;
+    // private $transactions = [];
 
     // Well, this will probably have to go into the yml file?
 
@@ -31,15 +33,8 @@ class Wizard
      // Wishlist
     ];
 
-    // OK, the API treats APIKeys as usernames,
-    // Client::prepareRequest() looks at isset(Password) and replaces it by a random string in the opposite case
-    // $redmine = new Client('https://redmine.1024.lu', '4ff32c96a52dfe3c850b4cd22be33cfcce02cb54');
-    // It always sets CURLOPT_USERPWD though…
-    // Well, this is kind of a a limiation of our redmine setup too because of basic Auth based on ldap!
     //
-    // Read URL, token/password from config file?
     // @todo   \ConduitClient
-
     public function __construct(array $config, \Redmine\Client $redmine, $conduit)
     {
         $this->config = $config;
@@ -50,38 +45,39 @@ class Wizard
     public function run()
     {
         try {
-            $this->testConnectionExistingProjectlist();
-            $this->project = $this->listRedmineProjects();
-            $phab_project = $this->selectOrCreatePhabricatorProject();
+            $this->testConnectionToRedmine();
+            $redmine_project = $this->listRedmineProjects();
+            $phab_project = $this->selectOrCreatePhabricatorProject($redmine_project);
+            // ????
             $this->identifyRedmineAndTargetphabricatorProject();
             $this->findOrCreateTicketFromRedmineInPhab();
+            print_r($results);
         } catch (\Exception $e) {
             die($e->getMessage());
         }
-
     }
 
     private function updatePhabTicket($ticket)
     {
         // todo:
-        // priority    Change the priority of the task. 
-        // view    Change the view policy of the object. 
-        // edit    Change the edit policy of the object. 
-        // subscribers.set Set subscribers, overwriting current value. 
-        //  - refactor code into functions 
-        //  - fix status array problem 
-        //  - list of phabricator projects 
+        // priority    Change the priority of the task.
+        // view    Change the view policy of the object.
+        // edit    Change the edit policy of the object.
+        // subscribers.set Set subscribers, overwriting current value.
+        //  - refactor code into functions
+        //  - fix status array problem
+        //  - list of phabricator projects
 
         /**
          * Now update the ticket with additional information (comments, attachments, relations, subscribers, etc)*/
-         
+
         $api_parameters = [
           'objectIdentifier' => $ticket['phid'],
           'transactions' => $this->transactions
         ];
 
         $edit = $this->conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
-    
+
     }
 
     private function transactPriority($details)
@@ -147,7 +143,7 @@ class Wizard
                 'type' => 'comment',
                 'value' => $comment,
             ];
-        }   
+        }
     }
 
     private function transactStatus($details, $status_map)
@@ -162,7 +158,7 @@ class Wizard
                 printf("%s\n", $key);
             }
             printf(
-                'Press [1] to add "%s" to the map_list; [2] if you want to give it a value from the map_list', 
+                'Press [1] to add "%s" to the map_list; [2] if you want to give it a value from the map_list',
                 $status
             );
             $fp = fopen('php://stdin', 'r');
@@ -196,7 +192,7 @@ class Wizard
         $file_ids = [];
         foreach ($details['issue']['attachments'] as $attachment) {
             $url = preg_replace(
-                '/http(s?):\/\//', 
+                '/http(s?):\/\//',
                 sprintf(
                     'https://%s:%s@',
                     $this->config['redmine']['user'],
@@ -204,7 +200,7 @@ class Wizard
                 ),
                 $attachment['content_url']
             );
-            
+
             $encoded = base64_encode(file_get_contents($url));
             $api_parameters = [
                 'name' => $attachment['filename'],
@@ -217,8 +213,8 @@ class Wizard
             );
             $result = $this->conduit->callMethodSynchronous('file.info', $api_parameters);
             $file_ids[] = sprintf('{%s}', $result['objectName']);
-        }    
-        
+        }
+
         $files = implode(' ', $file_ids);
         $this->transactions = [
             'type' => 'description',
@@ -226,7 +222,7 @@ class Wizard
         ];
     }
 
-    private function transactTitle($details, $title)
+    private function transactTitle($details, $ticket)
     {
         // * Is $task identical/similar to $ticket?
         // DR: or !empty $task?
@@ -239,10 +235,10 @@ class Wizard
                 ];
             }
         }
-        
+
     }
 
-    private function CreateManiphestTask($tickets, $details, $description, $owner)
+    private function createManiphestTask($tickets, $details, $description, $owner)
     {
         if (!empty($tickets) && sizeof($tickets) === 1) {
             $ticket = array_pop($tickets);
@@ -260,7 +256,7 @@ class Wizard
         }
 
         if (empty($tickets)) {
-        
+
             $api_parameters = [
                 'title' => $details['issue']['subject'],
                 'description' => $description,
@@ -271,6 +267,7 @@ class Wizard
                 ),
                 // 'viewPolicy' =>
             ];
+            // DR: should we replace createtask with edit?
             $task = $this->conduit->callMethodSynchronous('maniphest.createtask', $api_parameters);
             var_dump('task created is', $task);
         }
@@ -287,7 +284,7 @@ class Wizard
         );
 
         printf(
-            'Target phabricator project named "%s" with ID %s' . "\n",        
+            'Target phabricator project named "%s" with ID %s' . "\n",
             $this->found['name'],
             $this->found['id']
         );
@@ -312,12 +309,14 @@ class Wizard
             'limit' => 1024
         ]);
 
-        $this->project_detail = $this->redmine->project->show($this->project);
+        // DR: this is never used here
+        // $this->project_detail = $this->redmine->project->show($this->project);
 
         if (!$tasks || empty($tasks['issues'])) {
-            printf('No tasks found on project %s', $this->project. "\n"); 
-            // exit;
+            printf('No tasks found on project %s', $this->project. "\n");
         }
+        // DR: would be better to return $tasks['issues'];
+        // then to assign them on the class level.
         $this->issues = $tasks['issues'];
     }
 
@@ -329,7 +328,6 @@ class Wizard
         fclose($fp);
 
         if ('0' === $phab_project) {
-
             $detail = $this->redmine->project->show($this->project);
             $memberships = $this->redmine->membership->all($this->project);
             $members = array_filter(
@@ -341,8 +339,8 @@ class Wizard
                 }
             );
 
-            $phab_members = $this->getPhabricatorUserPhid($members);
-            
+            $phab_members = $this->getPhabricatorUserPhid($this->$conduit, $members);
+
             $api_parameters = array(
               'constraints' => array(
                 'icons' => array(
@@ -352,57 +350,82 @@ class Wizard
             );
             $constrain = $this->conduit->callMethodSynchronous('project.search', $api_parameters);
 
+            // DR: To be replaced by project.edit
             $api_parameters = [
                 'name' => $detail['project']['name'],
                 'members' => $phab_members,
                 'viewPolicy' => $constrain,
             ];
-            $this->found = $this->conduit->callMethodSynchronous('project.create', $api_parameters);
-            
+            $found = $this->conduit->callMethodSynchronous('project.create', $api_parameters);
+
             // TO BE FINISHED
-            // printf('OK, created project "%s" with phid %s', $this->found['name'], $this->found['phid'])
+            // printf('OK, created project "%s" with phid %s')
 
         } elseif ('' === $phab_project) {
             // TO BE FINISHED
-            
-        } else { 
 
-            if (is_numeric($phab_project)) {
+        } else {
+             if (is_numeric($phab_project)) {
                 $api_parameters = [
                     'ids' => [$phab_project],
                 ];
-                $this->findPhabProjectWithIdSlug($api_parameters);
+                $project = $this->findPhabProjectWithIdSlug($api_parameters);
             } else {
                 $api_parameters = [
                      'slugs' => [$phab_project],
                 ];
-                $this->findPhabProjectWithIdSlug($api_parameters);
+                $project = $this->findPhabProjectWithIdSlug($api_parameters);
             }
         }
-    }      
-
-    private function findPhabProjectWithIdSlug($api_parameters)
-    {
-        $result = $this->conduit->callMethodSynchronous('project.query', $api_parameters);
-        $this->found = array_pop($result['data']);
-
-        if (isset($this->found['phid'])) {
-            printf(
-                'OK, found project named "%s" with PHID %s' . "\n",
-                $this->found['name'],
-                $this->found['phid']
-            );
+        if ($project) {
+            $this->notifyProjectFound($project);
+            return $project;
         }
+        // Or throw exception here?
+        return false;
     }
 
-    private function testConnectionExistingProjectlist()
+    private function notifyProjectFound($project)
+    {
+        printf(
+            'OK, found project named "%s" with PHID %s' . "\n",
+            $project['name'],
+            $project['phid']
+        );
+    }
+
+    /**
+     * [findPhabProjectWithIdSlug description]
+     * @param  [type] $api_parameters [description]
+     * @return [type]                 [description]
+     */
+    public function findPhabProjectWithIdSlug($api_parameters)
+    {
+        $result = $this->conduit->callMethodSynchronous('project.query', $api_parameters);
+        if (!empty($result['data'])) {
+            $found = array_pop($result['data']);
+            if (isset($found['phid'])) {
+                return $found;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * [testConnectionToRedmine description]
+     * @return [type] [description]
+     */
+    public function testConnectionToRedmine()
     {
         // DR: can we find another, simpler method for checking connection than this?
         // Unfortunately, the Client does not have a way of checking whether the connection was successfull,
         // since it never established a connection.
         $project_listing = $this->redmine->project->listing();
         if (empty($project_listing)) {
-            die("\n" . 'Your project list is empty or we were unable to connect to redmine. Check your credentials!' . "\n");
+            throw new \InvalidArgumentException(
+                "Your project list is empty or we were unable to connect to redmine.\n
+                Please verify your credentials are correct!\n"
+            );
         }
     }
 
@@ -443,7 +466,7 @@ class Wizard
         if (isset($project['parent'])) {
             return sprintf("\t%s", $this->representProject($project));
         } else {
-            return sprintf("[%d]\t[%s]\n", $project['id'], $project['name']);
+            return sprintf("[%d]\t[%s]\n", $$project['id'], $$project['name']);
         }
     }
 
@@ -463,13 +486,13 @@ class Wizard
      * Caching user lookup.
      * Checks local cache for known users and queries conduit for any
      * not yet known users.
-     * 
+     *
      * @param  ConduitClient $conduit   Conduit client instance
      * @param  array         $fullnames Array of full names to look up
-     * 
+     *
      * @return array         PHIDs for users in $fullnames
      */
-    
+
     private function getPhabricatorUserPhid(array $fullnames)
     {
         $unknown_users = array_diff($fullnames, array_keys($this->phabricator_users));
@@ -501,16 +524,16 @@ class Wizard
                 continue;
             }
             $watchers = $watcher['name'];
-        }      
+        }
 
-        return $this->getPhabricatorUserPhid($watchers);  
+        return $this->getPhabricatorUserPhid($watchers);
     }
 
-    private function findOrCreateTicketFromRedmineInPhab()
+    private function findOrCreateTicketFromRedmineInPhab($issues)
     {
          // * Once we have a list of all issues on the selected project from redmine,
          // * we will loop through them using array_map and add each issue to the
-         // * new project on phabricator 
+         // * new project on phabricator
         $phab_statuses = $this->conduit->callMethodSynchronous('maniphest.querystatuses', []);
         $status_map = $phab_statuses['statusMap'];
         $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priority_map, $config, $status_map) {
@@ -527,21 +550,20 @@ class Wizard
                 ]
             );
 
-        $api_parameters = [
-        'realnames' => [$details['issue']['author']['name']],
-        ];
-        $result = $this->conduit->callMethodSynchronous('user.query', $api_parameters);
-        $owner = array_pop($result);
+            $api_parameters = [
+            'realnames' => [$details['issue']['author']['name']],
+            ];
+            $result = $this->conduit->callMethodSynchronous('user.query', $api_parameters);
+            $owner = array_pop($result);
 
-        $description = str_replace("\r", '', $details['issue']['description']);
-        $api_parameters = [
-            'fullText' => $description,
-        ];
-        $tickets = $this->conduit->callMethodSynchronous('maniphest.query', $api_parameters);
+            $description = str_replace("\r", '', $details['issue']['description']);
+            $api_parameters = [
+                'fullText' => $description,
+            ];
+            $tickets = $this->conduit->callMethodSynchronous('maniphest.query', $api_parameters);
 
-        $this->CreateManiphestTask($tickets, $details, $description, $owner);
+            $this->CreateManiphestTask($tickets, $details, $description, $owner);
         }, $issues);
-        // Make this nicer obviously ;)
     }
 }
 
@@ -554,9 +576,12 @@ class Wizard
 // if (empty($project_listing)) {
 //     die("\n" . 'Your project list is empty or we were unable to connect to redmine. Check your credentials!' . "\n");
 // }
-/*
+
+/***************************************************************/
+
+
 // // Which project should get permissions on the newly created projects and tickets?
-// // 
+// //
 
 // // First list available projects, then allow the user to select one
 // $reply = $redmine->project->all(['limit' => 1024]);
@@ -584,7 +609,7 @@ class Wizard
 // $project = trim(fgets($fp, 1024));
 // fclose($fp);
 
-***************************************************************
+/***************************************************************/
 
 // $tasks = $redmine->issue->all([
 //     'project_id' => $project,
@@ -595,7 +620,7 @@ class Wizard
 
 
 // if (!$tasks || empty($tasks['issues'])) {
-//     printf('No tasks found on project %s', $project. "\n"); 
+//     printf('No tasks found on project %s', $project. "\n");
 //     // exit;
 // }
 // $issues = $tasks['issues'];
@@ -621,21 +646,21 @@ class Wizard
 //     );
 
 //     $phab_members = getPhabricatorUserPhid($conduit, $members);
-    
+
 //     $api_parameters = [
 //         'name' => $detail['project']['name'],
 //         'members' => $phab_members,
 //         'viewPolicy' => '',
 //     ];
 //     $found = $conduit->callMethodSynchronous('project.create', $api_parameters);
-    
+
 //     // TO BE FINISHED
 //     // printf('OK, created project "%s" with phid %s')
 
 // } elseif ('' === $phab_project) {
 //     // TO BE FINISHED
-    
-// } else { 
+
+// } else {
 
 //      if (is_numeric($phab_project)) {
 //         $api_parameters = [
@@ -666,7 +691,7 @@ class Wizard
 //     }
 // }
 
-/***************************************************************
+/***************************************************************/
 
 // printf(
 //     'Redmine project named "%s" with ID %s' . "\n",
@@ -674,7 +699,7 @@ class Wizard
 //     $project
 // );
 // printf(
-//     'Target phabricator project named "%s" with ID %s' . "\n",        
+//     'Target phabricator project named "%s" with ID %s' . "\n",
 //     $found['name'],
 //     $found['id']
 // );
@@ -690,10 +715,10 @@ class Wizard
 // if (!($checking == 'y' || $checking == 'Y')) {
 //     die('bye'. "\n");
 // }
-/***************************************************************
+/***************************************************************/
 
 // // $project_issuerelation = $redmine->issuerelation->show($relation);
-// // var_dump($project_issuerelation); 
+// // var_dump($project_issuerelation);
 
 // // $project_issuestatus = $redmine->issue_status->all([
 // //     'project_id' => $project,
@@ -714,12 +739,12 @@ class Wizard
 
 
 
-/***************************************************************
+/***************************************************************/
 
 //  * Once we have a list of all issues on the selected project from redmine,
 //  * we will loop through them using array_map and add each issue to the
 //  * new project on phabricator
-//  
+//
 // $phab_statuses = $conduit->callMethodSynchronous('maniphest.querystatuses', []);
 // $status_map = $phab_statuses['statusMap'];
 // $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priority_map, $config, $status_map) {
@@ -752,7 +777,7 @@ class Wizard
 //     // var_dump($ticket);exit;
 
 
-***************************************************************
+/***************************************************************/
 
 //     if (!empty($tickets) && sizeof($tickets) === 1) {
 //         $ticket = array_pop($tickets);
@@ -763,7 +788,7 @@ class Wizard
 //     }
 
 //     if (empty($ticket)) {
-    
+
 //         $api_parameters = [
 //             'title' => $details['issue']['subject'],
 //             'description' => $description,
@@ -775,15 +800,16 @@ class Wizard
 //             // 'viewPolicy' =>
 //         ];
 
+            // DR: to be replaced by maniphest.edit ?!
 //         $task = $conduit->callMethodSynchronous('maniphest.createtask', $api_parameters);
 //         var_dump('task created is', $task);
 //     }
 
-***************************************************************
+/***************************************************************/
 
 //     /**
 //      * Is $task identical/similar to $ticket?
-//      
+//
 //     // DR: or !empty $task?
 //     if (!empty($ticket) && isset($ticket['phid'])) {
 
@@ -795,13 +821,13 @@ class Wizard
 //                 'value' => $details['issue']['subject'],
 //             ];
 //         };
-    
-***************************************************************
+
+/***************************************************************/
 
 //         $file_ids = [];
 //         foreach ($details['issue']['attachments'] as $attachment) {
 //             $url = preg_replace(
-//                 '/http(s?):\/\//', 
+//                 '/http(s?):\/\//',
 //                 sprintf(
 //                     'https://%s:%s@',
 //                     $config['redmine']['user'],
@@ -809,7 +835,7 @@ class Wizard
 //                 ),
 //                 $attachment['content_url']
 //             );
-            
+
 //             $encoded = base64_encode(file_get_contents($url));
 //             $api_parameters = [
 //                 'name' => $attachment['filename'],
@@ -822,15 +848,15 @@ class Wizard
 //             );
 //             $result = $conduit->callMethodSynchronous('file.info', $api_parameters);
 //             $file_ids[] = sprintf('{%s}', $result['objectName']);
-//         }    
-        
+//         }
+
 //         $files = implode(' ', $file_ids);
 //         $transactions[] = [
 //             'type' => 'description',
 //             'value' => sprintf("%s\n\n%s", $description, $files)
 //         ];
 
-***************************************************************
+/***************************************************************/
 
 //         // query phabricator => save to list
 //         $status = $details['issue']['status']['name'];
@@ -842,7 +868,7 @@ class Wizard
 //                 printf("%s\n", $key);
 //             }
 //             printf(
-//                 'Press [1] to add "%s" to the map_list; [2] if you want to give it a value from the map_list', 
+//                 'Press [1] to add "%s" to the map_list; [2] if you want to give it a value from the map_list',
 //                 $status
 //             );
 //             $fp = fopen('php://stdin', 'r');
@@ -862,9 +888,9 @@ class Wizard
 //             }
 //         }
 
-        
+
 //         // this does not work
-        
+
 
 //         // save new mapping to list
 
@@ -873,8 +899,8 @@ class Wizard
 //             'value' => $status,
 //         ];
 
-***************************************************************
-        
+/***************************************************************/
+
 //         foreach ($details['issue']['journals'] as $journal) {
 //             if (!isset($journal['notes']) || empty($journal['notes'])) {
 //             continue;
@@ -889,10 +915,10 @@ class Wizard
 //                 'type' => 'comment',
 //                 'value' => $comment,
 //             ];
-//         }   
+//         }
 
-***************************************************************     
-        
+/***************************************************************/
+
 //         $subscribers = watchersToSubscribers($conduit, $details['issue']['watchers']);
 //         if (!empty($subscribers)) {
 //             $transactions[] = [
@@ -901,7 +927,7 @@ class Wizard
 //             ];
 //         }
 
-***************************************************************
+/***************************************************************/
 
 //         $prio = $details['issue']['priority']['name'];
 //         $priority = $priority_map[$prio];
@@ -935,8 +961,8 @@ class Wizard
 //             'type' => 'priority',
 //             'value' => $prio,
 //         ];
-    
-***************************************************************
+
+/***************************************************************/
 
 //         // todo:
 //         // priority    Change the priority of the task. //?
@@ -949,7 +975,7 @@ class Wizard
 
 //         /**
 //          * Now update the ticket with additional information (comments, attachments, relations, subscribers, etc)
-//          
+//
 //         $api_parameters = [
 //           'objectIdentifier' => $ticket['phid'],
 //           'transactions' => $transactions
@@ -958,7 +984,7 @@ class Wizard
 //         $edit = $conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
 //     }
 
-***************************************************************
+/***************************************************************/
 
 
 
@@ -966,4 +992,3 @@ class Wizard
 
 //     // Make this nicer obviously ;)
 //     print_r($results);
-//}*/
