@@ -24,7 +24,8 @@ class WizardSpec extends ObjectBehavior
     private $conduit;   // mock of ConduitClient
 
     /**
-     *
+     * We're using Mockery for mocking ConduitClient, which is marked as final.
+     * See http://docs.mockery.io/en/latest/reference/index.html for Reference
      * "The class \ConduitClient is marked final and its methods cannot be replaced. Classes marked final can be passed in to \Mockery::mock() as instantiated objects to create a partial mock, but only if the mock is not subject to type hinting checks.
      *
      * @return void
