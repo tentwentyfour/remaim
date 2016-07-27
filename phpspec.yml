@@ -1,0 +1,7 @@
+extensions:
+  # PhpSpec\Extension\CodeCoverageExtension:
+  #   whitelist:
+  #     - lib
+  #   format:
+  #     - text
+  #     - clover

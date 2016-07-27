@@ -1,7 +1,16 @@
 <?php
 /**
  * Redmine to Maniphest migration wizard
- */
+ * // todo:
+    // priority    Change the priority of the task.
+    // view    Change the view policy of the object.
+    // edit    Change the edit policy of the object.
+    // subscribers.set Set subscribers, overwriting current value.
+    //  - refactor code into functions
+    //  - fix status array problem
+    //  - list of phabricator projects
+
+*/
 
 namespace Ttf\Remaim;
 
@@ -49,11 +58,11 @@ class Wizard
             $this->testConnectionToRedmine();
             $projects = $this->listRedmineProjects();
             $redmine_project = $this->selectAProject($projects);
-            $phab_project = $this->selectOrCreatePhabricatorProject();
-            $this->doSelectProject($phab_project, $redmine_project);
-            // ????
-            $this->identifyRedmineAndTargetphabricatorProject($redmine_project);
-            $this->findOrCreateTicketFromRedmineInPhab();
+            $phabricator_project = $this->selectOrCreatePhabricatorProject($redmine_project);
+            $issues = $this->getIssuesForProject($redmine_project['id']);
+            // $this->doSelectProject($phab_project, $redmine_project);
+            // $this->identifyRedmineAndTargetphabricatorProject($redmine_project);
+            // $this->findOrCreateTicketFromRedmineInPhab();
             print_r($results);
         } catch (\Exception $e) {
             die($e->getMessage());
@@ -61,14 +70,13 @@ class Wizard
     }
 
     /**
-     * [testConnectionToRedmine description]
+     * Can we find another, simpler method for checking connection than this?
+     * Unfortunately, the Client does not have a way of checking whether the connection was successfull,
+     * since it never established a connection.
      * @return [type] [description]
      */
     public function testConnectionToRedmine()
     {
-        // DR: can we find another, simpler method for checking connection than this?
-        // Unfortunately, the Client does not have a way of checking whether the connection was successfull,
-        // since it never established a connection.
         $project_listing = $this->redmine->project->listing();
         if (empty($project_listing) || !is_array($project_listing)) {
             throw new \InvalidArgumentException(
@@ -79,30 +87,7 @@ class Wizard
         return true;
     }
 
-    private function updatePhabTicket($ticket)
-    {
-        // todo:
-        // priority    Change the priority of the task.
-        // view    Change the view policy of the object.
-        // edit    Change the edit policy of the object.
-        // subscribers.set Set subscribers, overwriting current value.
-        //  - refactor code into functions
-        //  - fix status array problem
-        //  - list of phabricator projects
 
-        /**
-         * Now update the ticket with additional information (comments, attachments, relations, subscribers, etc)*/
-
-        $api_parameters = [
-          'objectIdentifier' => $ticket['phid'],
-          'transactions' => $this->transactions
-        ];
-
-        $edit = $this->conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
-
-    }
-
-   
 
     private function createManiphestTask($tickets, $details, $description, $owner)
     {
@@ -143,6 +128,16 @@ class Wizard
         }
     }
 
+    private function editManiphestTask($task, $transactions)
+    {
+        $api_parameters = [
+          'objectIdentifier' => $task['phid'],
+          'transactions' => $transactions
+        ];
+
+        return $this->conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
+    }
+
     private function identifyRedmineAndTargetphabricatorProject($redmine_project)
     {
         $this->listIssuesAndProjectdetails($redmine_project);
@@ -173,18 +168,20 @@ class Wizard
         }
     }
 
-    public function listIssuesAndProjectdetails($redmine_project)
+    public function getIssuesForProject($project_id)
     {
         $tasks = $this->redmine->issue->all([
-            'project_id' => $redmine_project,
+            'project_id' => $project_id,
             'limit' => 1024
         ]);
 
-        // DR: this is never used here
-        // project_detail = $this->redmine->project->show($redmine_project);
-
         if (!$tasks || empty($tasks['issues'])) {
-            printf('No tasks found on project %s', $redmine_project. "\n");
+            throw new \RuntimeException(
+                sprintf(
+                    "No tasks found on project with id %d\n",
+                    $project_id
+                )
+            );
         }
         // DR: would be better to return $tasks['issues'];
         // then to assign them on the class level.
@@ -192,73 +189,89 @@ class Wizard
         return $issues;
     }
 
-    private function selectOrCreatePhabricatorProject()
+    private function selectOrCreatePhabricatorProject($redmine_project)
     {
         print("Please enter the id/slug of the project in phabricator.\n Press [Enter] to see a list of available projects or\n enter [0] to create a new project from the Redmine project's details\n> ");
         $fp = fopen('php://stdin', 'r');
-        $phab_project = trim(fgets($fp, 1024));
+        $choice = trim(fgets($fp, 1024));
         fclose($fp);
-        return $phab_project;
+        return $this->actOnChoice($choice);
     }
 
-    public function doSelectProject($phab_project, $redmine_project) 
+    public function actOnChoice($choice, $project_id)
     {
-        if ('0' === $phab_project) {
-            $detail = $this->redmine->project->show($redmine_project);
-            $memberships = $this->redmine->membership->all($redmine_project);
-            $members = array_filter(
-                array_map(function ($relation) {
-                    return isset($relation['user']) ? $relation['user']['name'] : null;
-                }, $memberships['memberships']),
-                function ($member) {
-                    return $member != null;
+        switch ($choice) {
+            case '0':
+                $detail = $this->redmine->project->show(
+                    $project_id
+                );
+
+                $phab_members = $this->getPhabricatorUserPhid(
+                    $this->getRedmineProjectMembers($project_id)
+                );
+
+                $api_parameters = [
+                    'name' => $detail['project']['name'],
+                    'members' => $phab_members,
+                    'viewPolicy' => $constrain,
+                ];
+                $found = $this->conduit->callMethodSynchronous('project.edit', $api_parameters);
+
+                // TO BE FINISHED
+                // printf('OK, created project "%s" with phid %s')
+
+                break;
+            case '':
+                // TO BE FINISHED
+                break;
+
+            default:
+                if (is_numeric($phab_project)) {
+                    $api_parameters = [
+                        'ids' => [$phab_project],
+                    ];
+                    $project = $this->findPhabProjectWithIdSlug($api_parameters);
+                } else {
+                    $api_parameters = [
+                         'slugs' => [$phab_project],
+                    ];
+                    $project = $this->findPhabProjectWithIdSlug($api_parameters);
                 }
-            );
-
-            $phab_members = $this->getPhabricatorUserPhid($this->$conduit, $members);
-
-            $api_parameters = array(
-              'constraints' => array(
-                'icons' => array(
-                  'group',
-                ),
-              ),
-            );
-            $constrain = $this->conduit->callMethodSynchronous('project.search', $api_parameters);
-
-            // DR: To be replaced by project.edit
-            $api_parameters = [
-                'name' => $detail['project']['name'],
-                'members' => $phab_members,
-                'viewPolicy' => $constrain,
-            ];
-            $found = $this->conduit->callMethodSynchronous('project.create', $api_parameters);
-
-            // TO BE FINISHED
-            // printf('OK, created project "%s" with phid %s')
-
-        } elseif ('' === $phab_project) {
-            // TO BE FINISHED
-
-        } else {
-             if (is_numeric($phab_project)) {
-                $api_parameters = [
-                    'ids' => [$phab_project],
-                ];
-                $project = $this->findPhabProjectWithIdSlug($api_parameters);
-            } else {
-                $api_parameters = [
-                     'slugs' => [$phab_project],
-                ];
-                $project = $this->findPhabProjectWithIdSlug($api_parameters);
-            }
+                break;
         }
+
         if ($project) {
             $this->notifyProjectFound($project);
             return $project;
         }
         // Or throw exception here?
         return false;
+    }
+
+    public function getRedmineProjectMembers($project_id)
+    {
+        $memberships = $this->redmine->membership->all($project_id);
+
+        return array_filter(
+            array_map(function ($relation) {
+                return isset($relation['user']) ? $relation['user']['name'] : null;
+            }, $memberships['memberships']),
+            function ($member) {
+                return $member != null;
+            }
+        );
+    }
+
+    private function foobar()
+    {
+        $api_parameters = array(
+                  'constraints' => array(
+                    'icons' => array(
+                      'group',
+                    ),
+                  ),
+                );
+                $constrain = $this->conduit->callMethodSynchronous('project.search', $api_parameters);
     }
 
     private function notifyProjectFound($project)
@@ -286,80 +299,79 @@ class Wizard
         }
     }
 
+    /**
+     * Queries Redmine for a list of all projects on the platform.
+     * @todo : find a way to not have the print side-effects!!
+     *
+     * @return Array A tree structure of all projects on the redmine platform
+     */
     public function listRedmineProjects()
     {
-        // Which project should get permissions on the newly created projects and tickets?
-        // First list available projects, then allow the user to select one
         $reply = $this->redmine->project->all(['limit' => 1024]);
-        printf(
-            '%d total projects retrieved from your redmine instance.', 
-            $reply['total_count'][0]
-        );
-        $projects = $reply['projects'];
+        // printf(
+        //     "%d total projects retrieved from your redmine instance.\n\n",
+        //     $reply['total_count'][0]
+        // );
+        $projects = array_map(function ($project) {
+            if (!isset($project['parent'])) {
+                $project['parent'] = [
+                    'id' => 0
+                ];
+            }
+            return $project;
+        }, $reply['projects']);
 
-        $projects = $this->build_tree($projects);
+        $projects = $this->buildProjectTree($projects);
 
-        // $projects = array_reduce($projects, function ($container, $project) {
-        //     if (isset($project['parent'])) {
-        //         $container = $this->addToProject($container, $project);
-        //     } else {
-        //         $container[$project['id']] = $project;
-        //     }
-        //     return $container;
-        // }, []);
-
-
-        // use ($sortkey) from $argv to allow to sort by name or by id?
         usort($projects, function ($a, $b) {
             return $a['id'] > $b['id'];
         });
         return $projects;
     }
 
-    function build_tree(&$projects, $parent = 0, &$handled = [])
+    function buildProjectTree(&$projects, $parent = 0)
     {
         $tmp_array = [];
         foreach ($projects as $project) {
-            if (!in_array($project['id'], $handled) 
-                && (!isset($project['parent']) || $project['parent']['id'] == $parent)
-            ) {
-                $handled[] = $project['id'];
-                $project['children'] = $this->build_tree($projects, $project['id'], $handled);
+            if ($project['parent']['id'] == $parent) {
+                $project['children'] = $this->buildProjectTree($projects, $project['id']);
                 $tmp_array[] = $project;
             }
         }
-        // You *could* sort the temp array here if you wanted.
+        usort($tmp_array, function ($a, $b) {
+            return $a['id'] > $b['id'];
+        });
         return $tmp_array;
     }
 
-    private function representProject($project)
+    /**
+     * Visually represents project structure
+     *
+     * @param  Array  $project  Single project array
+     * @param  integer $level   Level of hierarchy-depth
+     *
+     * @return String           Returns a visual representation of the structure of $project
+     */
+    public function representProject($project, $level = 0)
     {
+        $string = sprintf(
+            "[%d – %s]\n",
+            $project['id'],
+            $project['name']
+        );
         if (!empty($project['children'])) {
-            return $this->representProject($project);
-        } else {
-            return sprintf(
-                "[%d]\t[%s]\n", 
-                $project['id'], 
-                $project['name']
-            );
+            $indent = implode('', array_pad([], ++$level, "\t"));
+            foreach ($project['children'] as $project) {
+                $string .= sprintf("%s|–––––––– %s", $indent, $this->representProject($project, $level));
+            }
         }
+        return $string;
     }
-
-    // private function addToProject($container, $project)
-    // {
-    //     return array_map(function ($parent, $key) use ($project) {
-    //         if ($key == $project['parent']['id']) {
-    //             return $parent['children'][] = $project;
-    //         } else {
-    //             return $this->addToProject($parent['children'], $project);
-    //         }
-    //     }, $container, array_keys($container));
-    // }
 
     public function selectAProject($projects)
     {
-        foreach ($projects as $project) {
-            print($this->representProject($project));
+        foreach ($projects as $toplevel) {
+            print($this->representProject($toplevel));
         }
         print('Select a project: [0] ' . "\n> ");
         $fp = fopen('php://stdin', 'r');

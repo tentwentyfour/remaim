@@ -61,7 +61,7 @@ class WizardSpec extends ObjectBehavior
         $this->shouldThrow('\InvalidArgumentException')->duringTestConnectionToRedmine();
     }
 
-    function it_should_return_true_if_it_can_connect_to_redmine(Client $redmine, Project $project)
+    function it_returns_true_if_it_can_connect_to_redmine(Client $redmine, Project $project)
     {
         $redmine->api('project')->willReturn($project);
         $project->listing()->shouldBeCalled();
@@ -71,7 +71,7 @@ class WizardSpec extends ObjectBehavior
         $this->testConnectionToRedmine()->shouldReturn(true);
     }
 
-    function it_should_throw_an_exception_if_redmine_returns_an_empty_value(Client $redmine, Project $project)
+    function it_throws_an_exception_if_redmine_returns_an_empty_value(Client $redmine, Project $project)
     {
         $redmine->api('project')->willReturn($project);
         $project->listing()->shouldBeCalled();
@@ -79,7 +79,7 @@ class WizardSpec extends ObjectBehavior
         $this->shouldThrow('\InvalidArgumentException')->duringTestConnectionToRedmine();
     }
 
-    function it_should_throw_an_exception_if_redmine_returns_an_non_array_value(Client $redmine, Project $project)
+    function it_throws_an_exception_if_redmine_returns_an_non_array_value(Client $redmine, Project $project)
     {
         $redmine->api('project')->willReturn($project);
         $project->listing()->shouldBeCalled();
@@ -87,7 +87,7 @@ class WizardSpec extends ObjectBehavior
         $this->shouldThrow('\InvalidArgumentException')->duringTestConnectionToRedmine();
     }
 
-    function it_should_be_able_to_look_up_a_phabricator_project_by_its_id()
+    function it_is_able_to_look_up_a_phabricator_project_by_its_id()
     {
         $lookup = [
             'ids' => [1]
@@ -107,73 +107,179 @@ class WizardSpec extends ObjectBehavior
         $this->findPhabProjectWithIdSlug($lookup)->shouldReturn($project_array);
     }
 
-    function it_should_return_a_list_of_projects(Client $redmine, Project $project)
+    function it_should_return_a_structured_list_of_projects(Client $redmine, Project $project)
     {
         $redmine->api('project')->willReturn($project);
         $project->all(['limit' => 1024])->shouldBeCalled();
-            $project->all(['limit' => 1024])->willReturn([
-                'projects' =>   [
-                                    ['id' => [25],
-                                     'name' => 'Website'],
-                                    ['id' => [12],
-                                     'name' => 'Tests'],
-                                    ['id' => [52],
-                                     'name' => 'Tests2'],
-                                ];
-                'total_count' => [
-                                    ['id' => [99],
-                                     'name' => 'hasToDisappear'],
-                                 ];
-                 
-            ];
-        );
+        $project->all(['limit' => 1024])->willReturn([
+            'projects' => [
+                [
+                    'id' => 5,
+                    'name' => 'Project one',
+                    'identifier' => 'project_one',
+                    'description' => 'The first project',
+                    'status' => 1,
+                    'created_on'  => "2013-05-16T18:40:18Z",
+                    'updated_on' => "2013-05-16T18:40:18Z"
+                ],
+                [
+                    'id' => 6,
+                    'name' => 'Project two',
+                    'identifier' => 'project_two',
+                    'description' => 'The second project',
+                    'status' => 1,
+                    'parent' => [
+                        'id' => 5
+                    ],
+                    'created_on'  => "2013-05-16T18:40:18Z",
+                    'updated_on' => "2013-05-16T18:40:18Z"
+                ],
+            ],
+            'total_count' => [2],
+        ]);
 
         $project_array = [
-            ['id' => [12],
-             'name' => 'Tests'],
-            ['id' => [25],
-             'name' => 'Website'],
-            ['id' => [52],
-             'name' => 'Tests']
-
+            [
+                'id' => 5,
+                'name' => 'Project one',
+                'identifier' => 'project_one',
+                'description' => 'The first project',
+                'status' => 1,
+                'created_on'  => "2013-05-16T18:40:18Z",
+                'updated_on' => "2013-05-16T18:40:18Z",
+                'parent' => [
+                    'id' => 0
+                ],
+                'children' => [
+                    [
+                        'id' => 6,
+                        'name' => 'Project two',
+                        'identifier' => 'project_two',
+                        'description' => 'The second project',
+                        'status' => 1,
+                        'parent' => [
+                            'id' => 5
+                        ],
+                        'created_on'  => "2013-05-16T18:40:18Z",
+                        'updated_on' => "2013-05-16T18:40:18Z",
+                        'children' => []
+                    ],
+                ],
+            ],
         ];
+
         $this->listRedmineProjects()->shouldReturn($project_array);
     }
 
     function it_should_return_the_projects_id_and_name()
     {
-        $project = ['id' => [12],
-                    'name' => 'Tests'
-                   ];
-        $this->representProject($project)->shouldReturn([12] ['Tests'])
+        $project = [
+            'id' => 5,
+            'name' => 'Tests'
+        ];
+        $this->representProject($project)->shouldReturn("[5 – Tests]\n");
+    }
+
+    function it_should_throw_an_exception_if_no_tasks_are_found(Client $redmine, Issue $issue)
+    {
+        $redmine->api('issue')->willReturn($issue);
+        $issue->all([
+            'project_id' => 1,
+            'limit' => 1024,
+        ])->willReturn(['issues' => []]);
+
+        $issue->all([
+            'project_id' => 1,
+            'limit' => 1024,
+        ])->shouldBeCalled();
+
+        $this->shouldThrow('\RuntimeException')->during('getIssuesForProject', [1]);
+    }
+
+    function it_should_throw_an_exception_if_looking_up_tasks_failed(Client $redmine, Issue $issue)
+    {
+        $redmine->api('issue')->willReturn($issue);
+        $issue->all([
+            'project_id' => 1,
+            'limit' => 1024,
+        ])->willReturn(false);
+
+        $issue->all([
+            'project_id' => 1,
+            'limit' => 1024,
+        ])->shouldBeCalled();
+        $this->shouldThrow('\RuntimeException')->during('getIssuesForProject', [1]);
     }
 
     function it_should_return_true_if_a_task_is_found(Client $redmine, Issue $issue)
     {
         $redmine->api('issue')->willReturn($issue);
-        $issue->all()->shouldBeCalled();
-        $issue->all()->willReturn([
+
+        $issue->all([
+            'project_id' => 1,
+            'limit' => 1024,
+        ])->willReturn([
             'issues' => [
-                'foo' => 'bar',
+                [
+                    'id' => 1,
+                    'project' => [
+                        'id' => 1,
+                        'name' => 'Test',
+                    ],
+                    'tracker' => [
+                        'id' => 1,
+                        'name' => 'Bug',
+                    ],
+                    'status' => [
+                        'id' => 1,
+                        'name' => 'New',
+                    ],
+                    'priority' => [
+                        'id' => 4,
+                        'name' => 'Normal',
+                    ],
+                ]
             ]
         ]);
-        $this->listIssuesAndProjectdetails()->shouldReturn(true);
+
+        $issue->all([
+            'project_id' => 1,
+            'limit' => 1024,
+        ])->shouldBeCalled();
+        $this->getIssuesForProject(1)->shouldReturn([
+            [
+                'id' => 1,
+                'project' => [
+                    'id' => 1,
+                    'name' => 'Test',
+                ],
+                'tracker' => [
+                    'id' => 1,
+                    'name' => 'Bug',
+                ],
+                'status' => [
+                    'id' => 1,
+                    'name' => 'New',
+                ],
+                'priority' => [
+                    'id' => 4,
+                    'name' => 'Normal',
+                ],
+            ],
+        ]);
     }
 
-
-
-
-    // function it_shows_a_list_of_the_projects(Wizard $project_create)
-    // {
-    //     $this->representProject($project)->shouldReturn('')
-    // }
-
-    /*     function it_converts_text_from_an_external_source($reader)
+    function it_caches_phabricator_user_lookups()
     {
-        $reader->beADoubleOf('Markdown\Reader');
-        $reader->getMarkdown()->willReturn("Hi, there");
+        $lookup = [];
+        $query_result = [];
+          $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('user.query', $lookup)
+        ->times(1)
+        ->andReturn($query_result);
 
-        $this->toHtmlFromReader($reader)->shouldReturn("<p>Hi, there</p>");
-    } */
+        $this->getPhabricatorUserPhid()->shouldReturn();
+    }
 
 }
