@@ -50,7 +50,7 @@ class Wizard
             $redmine_project = $this->listRedmineProjects();
             $phab_project = $this->selectOrCreatePhabricatorProject($redmine_project);
             // ????
-            $this->identifyRedmineAndTargetphabricatorProject();
+            $this->identifyRedmineAndTargetphabricatorProject($redmine_project);
             $this->findOrCreateTicketFromRedmineInPhab();
             print_r($results);
         } catch (\Exception $e) {
@@ -141,14 +141,14 @@ class Wizard
         }
     }
 
-    private function identifyRedmineAndTargetphabricatorProject()
+    private function identifyRedmineAndTargetphabricatorProject($redmine_project)
     {
         $this->listIssuesAndProjectdetails();
 
         printf(
             'Redmine project named "%s" with ID %s' . "\n",
             $this->project_detail['project']['name'],
-            $this->project
+            $redmine_project
         );
 
         printf(
@@ -170,10 +170,10 @@ class Wizard
         }
     }
 
-    public function listIssuesAndProjectdetails()
+    public function listIssuesAndProjectdetails($redmine_project)
     {
         $tasks = $this->redmine->issue->all([
-            'project_id' => $this->project,
+            'project_id' => $redmine_project,
             'limit' => 1024
         ]);
 
@@ -185,7 +185,7 @@ class Wizard
         }
         // DR: would be better to return $tasks['issues'];
         // then to assign them on the class level.
-        $this->issues = $tasks['issues']; return true;
+        $this->issues = $tasks['issues']; // return true; (for tests)
     }
 
     private function selectOrCreatePhabricatorProject()
