@@ -59,10 +59,9 @@ class Wizard
             $projects = $this->listRedmineProjects();
             $redmine_project = $this->selectAProject($projects);
             $phabricator_project = $this->selectOrCreatePhabricatorProject($redmine_project);
-            $issues = $this->getIssuesForProject($redmine_project['id']);
-            // $this->doSelectProject($phab_project, $redmine_project);
-            // $this->identifyRedmineAndTargetphabricatorProject($redmine_project);
-            // $this->findOrCreateTicketFromRedmineInPhab();
+            $issues = $this->getIssuesForProject($redmine_project);
+            $this->identifyRedmineAndTargetphabricatorProject($redmine_project, $phabricator_project, $issues);
+            $this->findOrCreateTicketFromRedmineInPhab($this->priority_map, $issues, $this->conduit, $this->redmine, $phabricator_project, $this->priority_map, $this->config);
             print_r($results);
         } catch (\Exception $e) {
             die($e->getMessage());
@@ -87,14 +86,12 @@ class Wizard
         return true;
     }
 
-
-
-    private function createManiphestTask($tickets, $details, $description, $owner)
+    public function createManiphestTask($priority_map, $tickets, $details, $description, $owner, $phabricator_project, $status_map)
     {
         if (!empty($tickets) && sizeof($tickets) === 1) {
             $ticket = array_pop($tickets);
             $transactions = [];
-            $transactions[] = $this->transactTitle($details, $title);
+            $transactions[] = $this->transactTitle($details, $ticket);
             $transactions[] = $this->transactFiles($details, $description);
             $transactions[] = $this->transactStatus($details, $status_map);
             $transactions[] = $this->transactComments($details);
@@ -104,13 +101,7 @@ class Wizard
                 return !empty($transaction);
             });
             $this->updatePhabTicket($ticket, $transactions);
-        } else {
-            var_dump($tickets);
-            die('Argh, more than one ticket found, need to do something about this.'. "\n");
-            // What do?
-        }
-
-        if (empty($tickets)) {
+        } elseif (empty($tickets)) {
 
             $api_parameters = [
                 'title' => $details['issue']['subject'],
@@ -118,17 +109,22 @@ class Wizard
                 'ownerPHID' => $owner['phid'],
                 'priority' => $priority_map[$details['issue']['priority']['name']],
                 'projectPHIDs' => array(
-                    $this->found['phid'],
+                    $phabricator_project['phid'],
                 ),
                 // 'viewPolicy' =>
             ];
             // DR: should we replace createtask with edit?
             $task = $this->conduit->callMethodSynchronous('maniphest.createtask', $api_parameters);
             var_dump('task created is', $task);
+            return $task;
+        } else {
+            var_dump($tickets);
+            die('Argh, more than one ticket found, need to do something about this.'. "\n");
+            // What do?
         }
     }
 
-    private function editManiphestTask($task, $transactions)
+    public function updatePhabTicket($task, $transactions)
     {
         $api_parameters = [
           'objectIdentifier' => $task['phid'],
@@ -138,9 +134,8 @@ class Wizard
         return $this->conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
     }
 
-    private function identifyRedmineAndTargetphabricatorProject($redmine_project)
+    public function identifyRedmineAndTargetphabricatorProject($redmine_project, $phabricator_project, $issues)
     {
-        $this->listIssuesAndProjectdetails($redmine_project);
         $project_detail = $this->redmine->project->show($redmine_project);
 
         printf(
@@ -151,13 +146,13 @@ class Wizard
 
         printf(
             'Target phabricator project named "%s" with ID %s' . "\n",
-            $this->found['name'],
-            $this->found['id']
+            $phabricator_project['name'],
+            $phabricator_project['id']
         );
 
         printf(
             '%d tickets to be migrated! OK to continue? [y/N]' . "\n> ",
-            sizeof($this->issues)
+            sizeof($issues)
         );
         $fp = fopen('php://stdin', 'r');
         $checking = trim(fgets($fp, 1024));
@@ -189,13 +184,13 @@ class Wizard
         return $issues;
     }
 
-    private function selectOrCreatePhabricatorProject($redmine_project)
+    public function selectOrCreatePhabricatorProject($project_id)
     {
-        print("Please enter the id/slug of the project in phabricator.\n Press [Enter] to see a list of available projects or\n enter [0] to create a new project from the Redmine project's details\n> ");
+        print(" Please enter the id/slug of the project in phabricator.\n Press [Enter] to see a list of available projects or\n enter [0] to create a new project from the Redmine project's details\n> ");
         $fp = fopen('php://stdin', 'r');
         $choice = trim(fgets($fp, 1024));
         fclose($fp);
-        return $this->actOnChoice($choice);
+        return $this->actOnChoice($choice, $project_id);
     }
 
     public function actOnChoice($choice, $project_id)
@@ -210,10 +205,11 @@ class Wizard
                     $this->getRedmineProjectMembers($project_id)
                 );
 
+                // TODO: change array passed to conduit!!
                 $api_parameters = [
                     'name' => $detail['project']['name'],
                     'members' => $phab_members,
-                    'viewPolicy' => $constrain,
+                    'viewPolicy' => '',
                 ];
                 $found = $this->conduit->callMethodSynchronous('project.edit', $api_parameters);
 
@@ -226,14 +222,14 @@ class Wizard
                 break;
 
             default:
-                if (is_numeric($phab_project)) {
+                if (is_numeric($choice)) {
                     $api_parameters = [
-                        'ids' => [$phab_project],
+                        'ids' => [$choice],
                     ];
                     $project = $this->findPhabProjectWithIdSlug($api_parameters);
                 } else {
                     $api_parameters = [
-                         'slugs' => [$phab_project],
+                         'slugs' => [$choice],
                     ];
                     $project = $this->findPhabProjectWithIdSlug($api_parameters);
                 }
@@ -262,19 +258,19 @@ class Wizard
         );
     }
 
-    private function foobar()
+    public function foobar()
     {
         $api_parameters = array(
-                  'constraints' => array(
-                    'icons' => array(
-                      'group',
-                    ),
-                  ),
-                );
-                $constrain = $this->conduit->callMethodSynchronous('project.search', $api_parameters);
+          'constraints' => array(
+            'icons' => array(
+              'group',
+            ),
+          ),
+        );
+        $constrain = $this->conduit->callMethodSynchronous('project.search', $api_parameters);
     }
 
-    private function notifyProjectFound($project)
+    public function notifyProjectFound($project)
     {
         printf(
             'OK, found project named "%s" with PHID %s' . "\n",
@@ -329,7 +325,7 @@ class Wizard
         return $projects;
     }
 
-    function buildProjectTree(&$projects, $parent = 0)
+    public function buildProjectTree(&$projects, $parent = 0)
     {
         $tmp_array = [];
         foreach ($projects as $project) {
@@ -362,7 +358,7 @@ class Wizard
         if (!empty($project['children'])) {
             $indent = implode('', array_pad([], ++$level, "\t"));
             foreach ($project['children'] as $project) {
-                $string .= sprintf("%s|–––––––– %s", $indent, $this->representProject($project, $level));
+                $string .= sprintf("%s└–––––––– %s", $indent, $this->representProject($project, $level));
             }
         }
         return $string;
@@ -391,7 +387,7 @@ class Wizard
      * @return array         PHIDs for users in $fullnames
      */
 
-    private function getPhabricatorUserPhid(array $fullnames)
+    public function getPhabricatorUserPhid(array $fullnames)
     {
         $unknown_users = array_diff($fullnames, array_keys($this->phabricator_users));
 
@@ -415,26 +411,26 @@ class Wizard
         );
     }
 
-    private function watchersToSubscribers($conduit, $redmine_watchers)
+    public function watchersToSubscribers($conduit, $redmine_watchers)
     {
         foreach ($redmine_watchers as $watcher) {
             if (!isset($watcher['name']) || empty($watcher['name'])) {
                 continue;
             }
-            $watchers = $watcher['name'];
+            $watchers [] = $watcher['name'];
         }
 
         return $this->getPhabricatorUserPhid($watchers);
     }
 
-    private function findOrCreateTicketFromRedmineInPhab($issues)
+    public function findOrCreateTicketFromRedmineInPhab($priority_map, $issues, $conduit, $redmine, $phabricator_project, $priority_map, $config)
     {
          // * Once we have a list of all issues on the selected project from redmine,
          // * we will loop through them using array_map and add each issue to the
          // * new project on phabricator
         $phab_statuses = $this->conduit->callMethodSynchronous('maniphest.querystatuses', []);
         $status_map = $phab_statuses['statusMap'];
-        $results = array_map(function ($issue) use ($conduit, $redmine, $found, $priority_map, $config, $status_map) {
+        $results = array_map(function ($issue) use ($conduit, $redmine, $phabricator_project, $priority_map, $config, $status_map) {
             $details = $this->redmine->issue->show(
                 $issue['id'],
                 [
@@ -460,7 +456,7 @@ class Wizard
             ];
             $tickets = $this->conduit->callMethodSynchronous('maniphest.query', $api_parameters);
 
-            $this->CreateManiphestTask($tickets, $details, $description, $owner);
+            $this->CreateManiphestTask($priority_map, $tickets, $details, $description, $owner, $phabricator_project, $status_map);
         }, $issues);
     }
 }

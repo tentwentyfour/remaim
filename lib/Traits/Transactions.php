@@ -5,7 +5,7 @@ namespace Ttf\Remaim\Traits;
 
 trait Transactions
 {
- private function transactPriority($details)
+ public function transactPriority($details)
     {
         $prio = $details['issue']['priority']['name'];
         $priority = $this->priority_map[$prio];
@@ -31,28 +31,28 @@ trait Transactions
                 $prio = $new_value;
 
             }
-
-            $newpriority = $prio;
         }
 
-        $this->transactions = [
+        $transactions = [
             'type' => 'priority',
-            'value' => $newpriority,
+            'value' => $prio,
         ];
+        return $transactions;
     }
 
-    private function transactSubscriber($details)
+    public function transactSubscriber($details)
     {
         $subscribers = $this->watchersToSubscribers($this->conduit, $details['issue']['watchers']);
         if (!empty($subscribers)) {
-            $this->transactions = [
+            $transactions = [
                 'type' => 'subscribers.set',
                 'value' => $subscribers,
             ];
+            return $transactions;
         }
     }
 
-    private function transactComments($details)
+    public function transactComments($details)
     {
         foreach ($details['issue']['journals'] as $journal) {
             if (!isset($journal['notes']) || empty($journal['notes'])) {
@@ -64,14 +64,15 @@ trait Transactions
             $journal['notes']
             );
 
-            $this->transactions = [
+            $transactions = [
                 'type' => 'comment',
                 'value' => $comment,
             ];
+            return $transactions;
         }
     }
 
-    private function transactStatus($details, $status_map)
+    public function transactStatus($details, $status_map)
     {
         // query phabricator => save to list
         $status = $details['issue']['status']['name'];
@@ -106,13 +107,14 @@ trait Transactions
         // this does not work
         // save new mapping to list
 
-        $this->transactions = [
+        $transactions = [
             'type' => 'status',
             'value' => $status,
         ];
+        return $transactions;
     }
 
-    private function transactFiles($details, $description)
+    public function transactFiles($details, $description)
     {
         $file_ids = [];
         foreach ($details['issue']['attachments'] as $attachment) {
@@ -141,13 +143,14 @@ trait Transactions
         }
 
         $files = implode(' ', $file_ids);
-        $this->transactions = [
+        $transactions = [
             'type' => 'description',
             'value' => sprintf("%s\n\n%s", $description, $files)
         ];
+        return $transactions;
     }
 
-    private function transactTitle($details, $ticket)
+    public function transactTitle($details, $ticket)
     {
         // * Is $task identical/similar to $ticket?
         // DR: or !empty $task?
