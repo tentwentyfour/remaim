@@ -5,7 +5,39 @@ namespace Ttf\Remaim\Traits;
 
 trait Transactions
 {
- public function transactPriority($details)
+    public function transactPolicy($details, $constraints)
+    {
+        $i = 0;
+        foreach ($constraints['data'] as $constraint) {
+            printf(
+                "[%d] =>\t[ID]: T%d \n\t[Name]: %s\n",
+                $i++, 
+                $constraint['id'],
+                $constraint['fields']['name']
+            );
+        }
+        $index = $this->selectTicketPhidFromDuplicates();
+        $groupproject = $constraints['data'][$index];
+        $selected_projectphid = $groupproject['phid'];
+
+        $viewPolicy = [
+            'type' => 'view',
+            'value' => $selected_projectphid,
+        ];  
+        $editPolicy = [
+            'type' => 'edit',
+            'value' => $selected_projectphid,
+        ];
+
+        $transacts = [
+            $viewPolicy,
+            $editPolicy,
+        ];
+
+        return $transacts;
+    }
+
+    public function transactPriority($details)
     {
         $prio = $details['issue']['priority']['name'];
         $priority = $this->priority_map[$prio];
@@ -154,15 +186,28 @@ trait Transactions
     {
         // * Is $task identical/similar to $ticket?
         // DR: or !empty $task?
-        if (!empty($ticket) && isset($ticket['phid']))
-        {
-            if ($ticket['title'] !== $details['issue']['subject']) {
-                return [
-                    'type' => 'title',
-                    'value' => $details['issue']['subject'],
-                ];
-            }
+        if ($ticket['title'] !== $details['issue']['subject']) {
+            return [
+                'type' => 'title',
+                'value' => $details['issue']['subject'],
+            ];
         }
 
+    }
+
+    public function transactOwnerPhid($owner)
+    {
+        return [
+            'type' => 'owner',
+            'value' => $owner,
+        ];  
+    }
+
+    public function transactPhabProjectPhid($phabricator_project)
+    {
+        return [
+            'type' => 'projects.set',
+            'value' => $phabricator_project,
+        ];  
     }
 }

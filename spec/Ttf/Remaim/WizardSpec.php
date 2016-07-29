@@ -413,13 +413,14 @@ class WizardSpec extends ObjectBehavior
     //     ];
 
     //     $tickets = [
-    //         [
-    //             'title' => 'Replace-me',
-    //             'description' => 'Replace-me',
-    //             'ownerPHID' => 'Replace-me',
-    //             'priority' => 100,
+    //         'PHID-TASK-biummspek2k4372ciaud' => [
+    //             'phid' => 'testphid',
+    //             'ownerPHID' => 'Replace-my ownerPHID',
+    //             'priority' => 'Urgent',
+    //             'title' => 'Replace-my title',
+    //             'description' => 'Replace-my description',
     //             'projectPHIDs' => [
-    //                 'Replace-me',
+    //                 'Replace-my projectPHID',
     //             ],
     //         ],
     //     ];
@@ -427,7 +428,7 @@ class WizardSpec extends ObjectBehavior
     //     $description = 'Hey testing this';
 
     //     $status_map = [
-    //         'Resolved' => 8,
+    //         'Urgent' => 8,
     //     ];
 
     //     $phabricator_project = [
@@ -455,17 +456,18 @@ class WizardSpec extends ObjectBehavior
     //             ],
     //             'status' => [
     //                 'id' => 3,
-    //                 'name' => 'Resolved',
+    //                 'name' => 8,
     //             ],
     //             'priority' => [
     //                 'id' => 4,
-    //                 'name' => '50',
+    //                 'name' => 'Low',
     //             ],
-    //             'subject' => 'testsolving',
-    //             'journal' => [
+    //             'subject' => 'titlesolved',
+    //             'journals' => [
     //                 'notes' => 'test-description',
     //             ],
-    //             'watchers' => 'Jona',
+    //             'watchers' => [],
+    //             'attachments' => [],
 
     //         ]
     //     ];
@@ -473,23 +475,19 @@ class WizardSpec extends ObjectBehavior
     //     $result = [
     //         [
     //         'type' => 'title',
-    //         'value' => 'testsolving',
+    //         'value' => 'titlesolved',
     //         ],
     //         [
     //         'type' => 'status',
-    //         'value' => 8,
+    //         'value' => 'Urgent',
     //         ],
     //         [
     //         'type' => 'comment',
     //         'value' => 'test-description',
     //         ],
     //         [
-    //         'type' => 'subscribers.set',
-    //         'value' => 'Jona',
-    //         ],
-    //         [
     //         'type' => 'priority',
-    //         'value' => 50,
+    //         'value' => 'Low',
     //         ],
     //     ];
     
@@ -508,19 +506,18 @@ class WizardSpec extends ObjectBehavior
         ];
 
         $ticket = [
-            [
-                'title' => 'Replace-me',
-                'description' => 'Replace-me',
-                'ownerPHID' => 'Replace-me',
-                'priority' => 100,
-                'projectPHIDs' => [
-                    'Replace-me',
-                ],
-            ],
+            'phid' => 'testphid',
+            'ownerPHID' => 'Replace-my ownerPHID',
+            'priority' => 'Urgent',
+            'title' => 'Replace-my title',
+            'description' => 'Replace-my description',
+            'projectPHIDs' => [
+                'Replace-my projectPHID',
+            ],       
         ];
 
         $api = [
-            'objectIdentifier' => 'test-phid'
+            'objectIdentifier' => 'testphid',
             'transactions' => [
                 ['type' => 'title',
                 'value' => 'testsolving',
@@ -539,13 +536,39 @@ class WizardSpec extends ObjectBehavior
                 ],
                 [
                 'type' => 'priority',
-                'value' => 50,
+                'value' => 'Immediate',
                 ],
             ],
         ];
 
+        $transactions = [
+                ['type' => 'title',
+                'value' => 'testsolving',
+                ],
+                [
+                'type' => 'status',
+                'value' => 'Normal',
+                ],
+                [
+                'type' => 'comment',
+                'value' => 'test-description',
+                ],
+                [
+                'type' => 'subscribers.set',
+                'value' => 'Jona',
+                ],
+                [
+                'type' => 'priority',
+                'value' => 'Immediate',
+                ],
+        ];
+
         $result = [
             'title' => 'testsolving',
+            'status' => 'Normal',
+            'comment' => 'test-description',
+            'subscribers.set' => 'Jona',
+            'Priority' => 'Immediate',
 
         ];
 
@@ -554,7 +577,7 @@ class WizardSpec extends ObjectBehavior
         ->with('maniphest.edit', $api)
         ->times(1)
         ->andReturn($result);        
-        $this->createManiphestTask($priority_map, $tickets, $details, $description, $owner, $phabricator_project, $status_map)->shouldReturn($result);
+        $this->updatePhabTicket($ticket, $transactions)->shouldReturn($result);
     }
 
 }

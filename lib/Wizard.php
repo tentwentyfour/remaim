@@ -88,50 +88,64 @@ class Wizard
 
     public function createManiphestTask($priority_map, $tickets, $details, $description, $owner, $phabricator_project, $status_map)
     {
-        if (!empty($tickets) && sizeof($tickets) === 1) {
+        $num_found = sizeof($tickets);
+        if (!empty($tickets) && $num_found > 1) {
+            print("OK, we found more than one already exisiting ticket in phabricator.\nPlease indicate which one to update. \n(You might want to delete the duplicate from your phabricator CLI later.\n");
+            $i = 0;
+            foreach ($tickets as $ticket) {
+                printf(
+                    "[%d] =>\t[ID]: T%d \n\t[Name]: %s \n\t[Descriptions]: %s\n",
+                    $i++, 
+                    $ticket['id'],
+                    $ticket['title'], 
+                    $ticket['description']
+                );
+            }
+            $index = $this->selectTicketPhidFromDuplicates();
+            $ticket = $tickets[$index];
+            $selected_ticketphid = $ticket['phid'];
+        } elseif (empty($tickets) || sizeof($tickets) === 1) {
             $ticket = array_pop($tickets);
-            $transactions = [];
-            $transactions[] = $this->transactTitle($details, $ticket);
-            $transactions[] = $this->transactFiles($details, $description);
-            $transactions[] = $this->transactStatus($details, $status_map);
-            $transactions[] = $this->transactComments($details);
-            $transactions[] = $this->transactSubscriber($details);
-            $transactions[] = $this->transactPriority($details);
-            $transactions = array_filter($transactions, function ($transaction) {
-                return !empty($transaction);
-            });
-            $this->updatePhabTicket($ticket, $transactions);
-        } elseif (empty($tickets)) {
+            $selected_ticketphid = $ticket['phid'];
+        } // implicit third case: ticket does not yet exist in phabricator
 
-            $api_parameters = [
-                'title' => $details['issue']['subject'],
-                'description' => $description,
-                'ownerPHID' => $owner['phid'],
-                'priority' => $priority_map[$details['issue']['priority']['name']],
-                'projectPHIDs' => array(
-                    $phabricator_project['phid'],
-                ),
-                // 'viewPolicy' =>
-            ];
-            // DR: should we replace createtask with edit?
-            $task = $this->conduit->callMethodSynchronous('maniphest.createtask', $api_parameters);
-            var_dump('task created is', $task);
-            return $task;
-        } else {
-            var_dump($tickets);
-            die('Argh, more than one ticket found, need to do something about this.'. "\n");
-            // What do?
-        }
+        $transactions = [];
+        $transactions[] = $this->transactPhabProjectPhid($phabricator_project['phid']);
+        $transactions[] = $this->transactOwnerPhid($owner['phid']);
+        $transactions[] = $this->transactTitle($details, $ticket);
+        $transactions[] = $this->transactFiles($details, $description);
+        $transactions[] = $this->transactStatus($details, $status_map);
+        $transactions[] = $this->transactComments($details);
+        $transactions[] = $this->transactSubscriber($details);
+        $transactions[] = $this->transactPriority($details);
+        $constraints = $this->lookupGroupProjects();
+        $transactions[] = $this->transactPolicy($details, $constraints); //
+        $transactions = array_filter($transactions, function ($transaction) {
+            return !empty($transaction);
+        });
+        return $this->createOrUpdatePhabTicket($transactions, $selected_ticketphid);
     }
 
-    public function updatePhabTicket($task, $transactions)
+    public function selectTicketPhidFromDuplicates()
+    {
+        printf("Enter the [index] of the ticket you would like to use.\n");
+        $fp = fopen('php://stdin', 'r');
+        $selectedIndex = trim(fgets($fp, 1024));
+        fclose($fp);
+        return $selectedIndex;
+    }
+    
+    public function createOrUpdatePhabTicket($transactions, $taskPHID = null)
     {
         $api_parameters = [
-          'objectIdentifier' => $task['phid'],
+          'objectIdentifier' => $taskPHID,
           'transactions' => $transactions
         ];
 
-        return $this->conduit->callMethodSynchronous('maniphest.edit', $api_parameters);
+        return $this->conduit->callMethodSynchronous(
+            'maniphest.edit', 
+            $api_parameters
+        );
     }
 
     public function identifyRedmineAndTargetphabricatorProject($redmine_project, $phabricator_project, $issues)
@@ -186,7 +200,7 @@ class Wizard
 
     public function selectOrCreatePhabricatorProject($project_id)
     {
-        print(" Please enter the id/slug of the project in phabricator.\n Press [Enter] to see a list of available projects or\n enter [0] to create a new project from the Redmine project's details\n> ");
+        print("Please enter the id/slug of the project in phabricator.\nPress [Enter] to see a list of available projects or\nEnter [0] to create a new project from the Redmine project's details\n> ");
         $fp = fopen('php://stdin', 'r');
         $choice = trim(fgets($fp, 1024));
         fclose($fp);
@@ -258,7 +272,7 @@ class Wizard
         );
     }
 
-    public function foobar()
+    public function lookupGroupProjects()
     {
         $api_parameters = array(
           'constraints' => array(
@@ -267,7 +281,7 @@ class Wizard
             ),
           ),
         );
-        $constrain = $this->conduit->callMethodSynchronous('project.search', $api_parameters);
+        return $this->conduit->callMethodSynchronous('project.search', $api_parameters);
     }
 
     public function notifyProjectFound($project)
@@ -443,7 +457,6 @@ class Wizard
                     ]
                 ]
             );
-
             $api_parameters = [
             'realnames' => [$details['issue']['author']['name']],
             ];
