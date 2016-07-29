@@ -193,6 +193,13 @@ class Wizard
     {
         switch ($choice) {
             case '':
+                
+                $api_parameters = [
+                    'ids' => [],
+                ];
+                $result = $this->conduit->callMethodSynchronous('project.query', $api_parameters);
+                var_dump($result);
+
                 // TO BE FINISHED
                 break;
             case '0':
