@@ -1,6 +1,6 @@
 <?php
 /**
- * PhpSpec file for Remaim
+ * PhpSpec spec for the Redmine to Maniphest Importer
  */
 
 namespace spec\Ttf\Remaim;
@@ -9,12 +9,11 @@ use PhpSpec\ObjectBehavior;
 use Prophecy\Argument;
 use Mockery as m;
 
-use Ttf\Remaim\Wizard;  // Class under test
+use Ttf\Remaim\Wizard;  // System under test
 
 use Redmine\Client;
 use Redmine\Api\Project;
 use Redmine\Api\Issue;
-
 
 require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
 
@@ -41,6 +40,15 @@ class WizardSpec extends ObjectBehavior
         ];
         // Proxied partial mock, see http://docs.mockery.io/en/latest/reference/partial_mocks.html#proxied-partial-mock
         $this->conduit = m::mock(new \ConduitClient('https://localhost'));
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('maniphest.querystatuses', [])
+        ->times(1)
+        ->andReturn(['statusMap' => [
+            'open' => 'Open',
+            'resolved' => 'Resolved',
+        ]]);
+
         $this->beConstructedWith($config, $redmine, $this->conduit);
     }
 
@@ -58,7 +66,7 @@ class WizardSpec extends ObjectBehavior
     {
         $redmine->api('project')->willReturn($project);
         $project->listing()->shouldBeCalled();
-        $this->shouldThrow('\InvalidArgumentException')->duringTestConnectionToRedmine();
+        $this->shouldThrow('\RuntimeException')->duringTestConnectionToRedmine();
     }
 
     function it_returns_true_if_it_can_connect_to_redmine(Client $redmine, Project $project)
@@ -76,7 +84,7 @@ class WizardSpec extends ObjectBehavior
         $redmine->api('project')->willReturn($project);
         $project->listing()->shouldBeCalled();
         $project->listing()->willReturn();
-        $this->shouldThrow('\InvalidArgumentException')->duringTestConnectionToRedmine();
+        $this->shouldThrow('\RuntimeException')->duringTestConnectionToRedmine();
     }
 
     function it_throws_an_exception_if_redmine_returns_an_non_array_value(Client $redmine, Project $project)
@@ -84,7 +92,7 @@ class WizardSpec extends ObjectBehavior
         $redmine->api('project')->willReturn($project);
         $project->listing()->shouldBeCalled();
         $project->listing()->willReturn(1);
-        $this->shouldThrow('\InvalidArgumentException')->duringTestConnectionToRedmine();
+        $this->shouldThrow('\RuntimeException')->duringTestConnectionToRedmine();
     }
 
     function it_is_able_to_look_up_a_phabricator_project_by_its_id()
@@ -107,7 +115,7 @@ class WizardSpec extends ObjectBehavior
         $this->findPhabProjectWithIdSlug($lookup)->shouldReturn($project_array);
     }
 
-    function it_should_return_a_structured_list_of_projects(Client $redmine, Project $project)
+    function it_returns_a_structured_list_of_projects(Client $redmine, Project $project)
     {
         $redmine->api('project')->willReturn($project);
         $project->all(['limit' => 1024])->shouldBeCalled();
@@ -171,7 +179,7 @@ class WizardSpec extends ObjectBehavior
         $this->listRedmineProjects()->shouldReturn($project_array);
     }
 
-    function it_should_return_the_projects_id_and_name()
+    function it_returns_the_projects_id_and_name()
     {
         $project = [
             'id' => 5,
@@ -181,7 +189,7 @@ class WizardSpec extends ObjectBehavior
         $this->representProject($project)->shouldReturn("[5 – Tests]\n");
     }
 
-    function it_should_throw_an_exception_if_no_tasks_are_found(Client $redmine, Issue $issue)
+    function it_throws_an_exception_if_no_tasks_are_found(Client $redmine, Issue $issue)
     {
         $redmine->api('issue')->willReturn($issue);
         $issue->all([
@@ -197,7 +205,7 @@ class WizardSpec extends ObjectBehavior
         $this->shouldThrow('\RuntimeException')->during('getIssuesForProject', [1]);
     }
 
-    function it_should_throw_an_exception_if_looking_up_tasks_failed(Client $redmine, Issue $issue)
+    function it_throws_an_exception_if_looking_up_tasks_failed(Client $redmine, Issue $issue)
     {
         $redmine->api('issue')->willReturn($issue);
         $issue->all([
@@ -212,7 +220,7 @@ class WizardSpec extends ObjectBehavior
         $this->shouldThrow('\RuntimeException')->during('getIssuesForProject', [1]);
     }
 
-    function it_should_return_true_if_a_task_is_found(Client $redmine, Issue $issue)
+    function it_returns_true_if_a_task_is_found(Client $redmine, Issue $issue)
     {
         $redmine->api('issue')->willReturn($issue);
 
@@ -270,7 +278,7 @@ class WizardSpec extends ObjectBehavior
         ]);
     }
 
-    function xit_caches_phabricator_user_lookups()
+    function it_caches_phabricator_user_lookups()
     {
         $lookupone = [
             'James',
@@ -278,7 +286,7 @@ class WizardSpec extends ObjectBehavior
             'John',
         ];
 
-        $lookuptwo = [  
+        $lookuptwo = [
             'James',
             'Alfred',
         ];
@@ -318,32 +326,78 @@ class WizardSpec extends ObjectBehavior
         $this->getPhabricatorUserPhid($lookuptwo)->shouldReturn($methodoutcometwo);
     }
 
-    function it_should_return_a_new_created_task_if_it_doesnt_already_exist_in_phabricator()
+    function it_generates_a_title_transaction_for_new_tasks()
+    {
+        $details = [
+            'issue' => [
+                'subject' => 'Test Subject',
+                'attachments' => [],
+                'status' => [
+                    'id' => 1,
+                    'name' => 'Resolved',
+                ]
+            ]
+        ];
+        $policies = [
+            'view' => 'PHID-foobar',
+            'edit' => 'PHID-barbaz',
+        ];
+
+        $this->assembleTransactionsFor(
+            'PHID-random',
+            $details,
+            'A random description of a task',
+            $policies
+        )->shouldReturn([
+            'type' => 'title',
+            'value' => 'Test subject',
+        ]);
+
+    }
+
+    function it_generates_a_title_transaction_if_the_title_has_changed()
+    {
+
+    }
+
+    function it_does_not_generate_a_transaction_if_the_title_has_not_changed()
+    {
+
+    }
+
+    function it_assembles_an_array_of_transactions_from_ticket_details()
+    {
+
+    }
+
+    function it_filters_out_empty_transactions()
+    {
+        // $this->transactTitle()->willReturn([]);
+        // $this->assembleTransactionsFor()->shouldReturn([]);
+    }
+
+    function xit_creates_a_new_task_if_no_match_is_found_in_phabricator()
     {
         $priority_map = [
-        'Immediate' => 100, // unbreak now!
-        'Urgent' => 100,    // unbreak now!
-        'High' => 80,       // High
-        'Normal' => 50,     // Normal
-        'Low' => 25         // Low
-         // Wishlist
+            'Immediate' => 100, // unbreak now!
+            'Urgent' => 100,    // unbreak now!
+            'High' => 80,       // High
+            'Normal' => 50,     // Normal
+            'Low' => 25         // Low
+            // Wishlist
         ];
 
         $tickets = [];
-
         $description = 'Hey testing this';
-
         $status_map = [];
-
         $phabricator_project = [
-            'id' => 34,
+            'id' => 42,
             'phid' => 'test-phid',
-            'name' => '1024 Website',
-
+            'name' => 'Foo project',
         ];
 
         $owner = [
-            'name' => 'Fufufo',
+            'name' => 'Foo Bar',
             'phid' => 'test-phid'
         ];
 
@@ -351,8 +405,8 @@ class WizardSpec extends ObjectBehavior
             'issue' => [
                 'id' => 2541,
                 'project' => [
-                    'id' => 25,
-                    'name' => 'Website',
+                    'id' => 42,
+                    'name' => 'Foo project',
                 ],
                 'tracker' => [
                     'id' => 1,
@@ -367,20 +421,19 @@ class WizardSpec extends ObjectBehavior
                     'name' => 'Urgent',
                 ],
                 'subject' => 'testsolving',
-                'attachments' => '',
-
+                'attachments' => [],
             ]
         ];
 
-        $api = [
-            'title' => $details['issue']['subject'],
-            'description' => $description,
-            'ownerPHID' => $owner['phid'],
-            'priority' => $priority_map[$details['issue']['priority']['name']],
-            'projectPHIDs' => [
-                $phabricator_project['phid'],
-            ],
-        ];
+        // $api = [
+        //     'title' => $details['issue']['subject'],
+        //     'description' => $description,
+        //     'ownerPHID' => $owner['phid'],
+        //     'priority' => $priority_map[$details['issue']['priority']['name']],
+        //     'projectPHIDs' => [
+        //         $phabricator_project['phid'],
+        //     ],
+        // ];
 
         $result = [
             'title' => 'testsolving',
@@ -394,10 +447,18 @@ class WizardSpec extends ObjectBehavior
 
         $this->conduit
         ->shouldReceive('callMethodSynchronous')
-        ->with('maniphest.createtask', $api)
+        ->with('maniphest.edit')
         ->times(1)
-        ->andReturn($result);        
-        $this->createManiphestTask($priority_map, $tickets, $details, $description, $owner, $phabricator_project, $status_map)->shouldReturn($result);
+        ->andReturn($result);
+
+        $this->createManiphestTask(
+            $tickets,
+            $details,
+            $description,
+            $owner,
+            $phabricator_project,
+            $policies
+        )->shouldReturn($result);
     }
 
     // TODO: Repair the Status and Priority Transactions
@@ -490,11 +551,11 @@ class WizardSpec extends ObjectBehavior
     //         'value' => 'Low',
     //         ],
     //     ];
-    
+
     //     $this->createManiphestTask($priority_map, $tickets, $details, $description, $owner, $phabricator_project, $status_map)->shouldReturn($result);
     // }
 
-    function it_should_return_an_updated_phabticket()
+    function xit_should_return_an_updated_phabticket()
     {
         $priority_map = [
         'Immediate' => 100, // unbreak now!
@@ -513,11 +574,11 @@ class WizardSpec extends ObjectBehavior
             'description' => 'Replace-my description',
             'projectPHIDs' => [
                 'Replace-my projectPHID',
-            ],       
+            ],
         ];
 
         $api = [
-            'objectIdentifier' => 'test-phid'
+            'objectIdentifier' => 'test-phid',
             'transactions' => [
                 ['type' => 'title',
                 'value' => 'testsolving',
@@ -576,7 +637,7 @@ class WizardSpec extends ObjectBehavior
         ->shouldReceive('callMethodSynchronous')
         ->with('maniphest.edit', $api)
         ->times(1)
-        ->andReturn($result);        
+        ->andReturn($result);
         $this->updatePhabTicket($ticket, $transactions)->shouldReturn($result);
     }
 

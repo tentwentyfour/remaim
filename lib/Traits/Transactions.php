@@ -1,4 +1,20 @@
 <?php
+/**
+ * ReMaIm – Redmine to Phabricator Importer
+ *
+ * @package Ttf\Remaim
+ * @version  0.0.1 First public release
+ * @since    0.0.1 First public release
+ *
+ * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
+ * @author  David Raison <david@tentwentyfour.lu>
+ *
+ * (c) TenTwentyFour
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ *
+ */
 
 
 namespace Ttf\Remaim\Traits;
@@ -10,7 +26,7 @@ trait Transactions
         $viewPolicy = [
             'type' => 'view',
             'value' => $policies['view'],
-        ];  
+        ];
         $editPolicy = [
             'type' => 'edit',
             'value' => $policies['edit'],
@@ -71,24 +87,40 @@ trait Transactions
         }
     }
 
-    public function transactComments($details)
+    /**
+     * Since all comments will be created under the user
+     * whose API token we're using, we cannot assign each
+     * individual comment to the original author.
+     * We therefore prefix the comments with their original author's names
+     *
+     * @param  array $issue Redmine issue
+     *
+     * @return array        A set of transactions of comments
+     */
+    public function createCommentTransactions($issue)
     {
-        foreach ($details['issue']['journals'] as $journal) {
+        if (!isset($issue['journals'])) {
+            return [];
+        }
+
+        $transactions = [];
+        foreach ($issue['journals'] as $journal) {
+            var_dump($journal); exit;
             if (!isset($journal['notes']) || empty($journal['notes'])) {
-            continue;
+                continue;
             }
             $comment = sprintf(
-            "%s originally wrote:\n> %s",
-            $journal['user']['name'],
-            $journal['notes']
+                "%s originally wrote:\n> %s",
+                $journal['user']['name'],
+                $journal['notes']
             );
 
-            $transactions = [
+            $transactions[] = [
                 'type' => 'comment',
                 'value' => $comment,
             ];
-            return $transactions;
         }
+        return $transactions;
     }
 
     public function transactStatus($details)
@@ -97,7 +129,7 @@ trait Transactions
 
         if (!array_key_exists($status, $this->status_map)) {
             printf(
-                'We could not find a matching key for the status "%s"!' . "\n", 
+                'We could not find a matching key for the status "%s"!' . "\n",
                 $status
             );
 
@@ -105,7 +137,7 @@ trait Transactions
             foreach ($stati as $available) {
                 printf("%s\n", $available);
             }
-            
+
             printf('Enter the desired value!' . "\n> ");
             $fp = fopen('php://stdin', 'r');
             $new_value = trim(fgets($fp, 1024));
@@ -120,7 +152,16 @@ trait Transactions
         return $transactions;
     }
 
-    public function transactFiles($details, $description)
+    /**
+     * Upload file attachments, if any and add them to the
+     * tasks' description.
+     *
+     * @param  array $details      Task details
+     * @param  String $description Task description
+     *
+     * @return array               Transaction partial
+     */
+    public function createDescriptionTransaction($details, $description)
     {
         $file_ids = [];
         foreach ($details['issue']['attachments'] as $attachment) {
@@ -156,25 +197,31 @@ trait Transactions
         return $transactions;
     }
 
-    public function transactTitle($details, $ticket)
+    /**
+     * Creates a title transaction for new tasks or if the
+     * titles have diverged in redmine and phabricator
+     *
+     * @param  array $issue  Redmine issue details
+     * @param  array $task   Empty array or retrieved phabricator task
+     *
+     * @return array|void    A title transaction or nothing
+     */
+    public function createTitleTransaction($issue, $task)
     {
-        // * Is $task identical/similar to $ticket?
-        // DR: or !empty $task?
-        if ($ticket['title'] !== $details['issue']['subject']) {
+        if (empty($task) || $task['title'] !== $issue['subject']) {
             return [
                 'type' => 'title',
-                'value' => $details['issue']['subject'],
+                'value' => $issue['subject'],
             ];
         }
-
     }
 
-    public function transactOwnerPhid($owner)
+    public function createOwnerTransaction($owner)
     {
         return [
             'type' => 'owner',
             'value' => $owner,
-        ];  
+        ];
     }
 
     public function transactPhabProjectPhid($phabricator_project)
@@ -182,6 +229,6 @@ trait Transactions
         return [
             'type' => 'projects.set',
             'value' => [$phabricator_project],
-        ];  
+        ];
     }
 }
