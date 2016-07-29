@@ -32,17 +32,19 @@ trait Transactions
             'value' => $policies['edit'],
         ];
 
-        $transacts = [
+        return [
             $viewPolicy,
             $editPolicy,
         ];
-
-        return $transacts;
     }
 
-    public function transactPriority($details)
+    public function createPriorityTransaction($issue)
     {
-        $prio = $details['issue']['priority']['name'];
+        if (!isset($issue['priority']) || empty($issue['priority'])) {
+            return [];
+        }
+
+        $prio = $issue['priority']['name'];
         $priority = $this->priority_map[$prio];
         if (!$priority) {
             printf('We could not find a matching priority for your priority "%s"!' . "\n> ", $prio);
@@ -75,9 +77,17 @@ trait Transactions
         return $transactions;
     }
 
-    public function transactSubscriber($details)
+    public function createSubscriberTransaction($issue)
     {
-        $subscribers = $this->watchersToSubscribers($this->conduit, $details['issue']['watchers']);
+        if (!isset($issue['watchers']) || empty($issue['watchers'])) {
+            return [];
+        }
+
+        $subscribers = $this->watchersToSubscribers(
+            $this->conduit,
+            $issue['watchers']
+        );
+
         if (!empty($subscribers)) {
             $transactions = [
                 'type' => 'subscribers.set',
@@ -164,6 +174,7 @@ trait Transactions
     public function createDescriptionTransaction($details, $description)
     {
         $file_ids = [];
+        $description = trim($description);
         foreach ($details['issue']['attachments'] as $attachment) {
             $url = preg_replace(
                 '/http(s?):\/\//',
@@ -189,12 +200,16 @@ trait Transactions
             $file_ids[] = sprintf('{%s}', $result['objectName']);
         }
 
-        $files = implode(' ', $file_ids);
-        $transactions = [
+
+        if (!empty($file_ids)) {
+            $files = implode(' ', $file_ids);
+            $description = sprintf("%s\n\n%s", $description, $files);
+        }
+
+        return [
             'type' => 'description',
-            'value' => sprintf("%s\n\n%s", $description, $files)
+            'value' => $description,
         ];
-        return $transactions;
     }
 
     /**

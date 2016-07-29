@@ -49,7 +49,15 @@ class Wizard
         $this->config = $config;
         $this->redmine = $redmine;
         $this->conduit = $conduit;
-        $this->status_map = $this->fetchPhabricatorStati();
+        try {
+            $this->status_map = $this->fetchPhabricatorStati();
+        } catch (\HTTPFutureCURLResponseStatus $e) {
+            printf(
+                "\nI am unable to connect to %s. \nThere was an error resolving the server hostname. Check that you are connected to the internet and that DNS is correctly configured.\n\n",
+                $config['phabricator']['host']
+            );
+            exit(1);
+        }
     }
 
     public function fetchPhabricatorStati()
@@ -105,7 +113,7 @@ class Wizard
         return true;
     }
 
-    public function selectIndexFromList($message, $max)
+    private function selectIndexFromList($message, $max)
     {
         printf("%s\n> ", $message);
         $fp = fopen('php://stdin', 'r');
@@ -136,11 +144,7 @@ class Wizard
         $project_detail = $this->redmine->project->show($redmine_project);
 
         printf(
-            "\n\n
-            ####################\n
-            # Pre-flight check #\n
-            ####################\n
-            Redmine project named \"%s\" with ID %s.\n",
+            "\n\n####################\n# Pre-flight check #\n####################\nRedmine project named \"%s\" with ID %s.\n",
             $project_detail['project']['name'],
             $redmine_project
         );
@@ -588,8 +592,8 @@ class Wizard
             $task_description
         );
         $transactions[] = $this->transactStatus($details);
-        $transactions[] = $this->transactSubscriber($details);
-        $transactions[] = $this->transactPriority($details);
+        $transactions[] = $this->createSubscriberTransaction($details['issue']);
+        $transactions[] = $this->createPriorityTransaction($details['issue']);
 
         $transactions = array_merge(
             $transactions,
@@ -600,9 +604,11 @@ class Wizard
             $transactions,
             $this->transactPolicy($details, $policies)
         );
-        return array_filter($transactions, function ($transaction) {
-            return !empty($transaction);
-        });
+        return array_values(
+            array_filter($transactions, function ($transaction) {
+                return !empty($transaction);
+            })
+        );
     }
 
     public function grabOwnerPhid($issue)

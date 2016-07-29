@@ -343,15 +343,39 @@ class WizardSpec extends ObjectBehavior
             'edit' => 'PHID-barbaz',
         ];
 
+        $expectedTransactions = [
+            [
+                'type' => 'projects.set',
+                'value' => ['PHID-random'],
+            ],
+            [
+                'type' => 'title',
+                'value' => 'Test Subject',
+            ],
+            [
+                'type' => 'description',
+                'value' => 'A random description of a task',
+            ],
+            [
+                'type' => 'status',
+                'value' => 'resolved',
+            ],
+            [
+                'type' => 'view',
+                'value' => 'PHID-foobar',
+            ],
+            [
+                'type' => 'edit',
+                'value' => 'PHID-barbaz',
+            ]
+        ];
+
         $this->assembleTransactionsFor(
             'PHID-random',
             $details,
             'A random description of a task',
             $policies
-        )->shouldReturn([
-            'type' => 'title',
-            'value' => 'Test subject',
-        ]);
+        )->shouldReturn($expectedTransactions);
 
     }
 
