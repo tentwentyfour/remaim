@@ -5,28 +5,15 @@ namespace Ttf\Remaim\Traits;
 
 trait Transactions
 {
-    public function transactPolicy($details, $constraints)
+    public function transactPolicy($details, $policies)
     {
-        $i = 0;
-        foreach ($constraints['data'] as $constraint) {
-            printf(
-                "[%d] =>\t[ID]: T%d \n\t[Name]: %s\n",
-                $i++, 
-                $constraint['id'],
-                $constraint['fields']['name']
-            );
-        }
-        $index = $this->selectTicketPhidFromDuplicates();
-        $groupproject = $constraints['data'][$index];
-        $selected_projectphid = $groupproject['phid'];
-
         $viewPolicy = [
             'type' => 'view',
-            'value' => $selected_projectphid,
+            'value' => $policies['view'],
         ];  
         $editPolicy = [
             'type' => 'edit',
-            'value' => $selected_projectphid,
+            'value' => $policies['edit'],
         ];
 
         $transacts = [
@@ -104,44 +91,31 @@ trait Transactions
         }
     }
 
-    public function transactStatus($details, $status_map)
+    public function transactStatus($details)
     {
-        // query phabricator => save to list
         $status = $details['issue']['status']['name'];
-        $key = array_search($status, $status_map);
 
-        if (!$key) {
-            printf('We could not find a matching key for your status "%s"!' . "\n> ", $status);
-            foreach ($status_map as $key => $value) {
-                printf("%s\n", $key);
-            }
+        if (!array_key_exists($status, $this->status_map)) {
             printf(
-                'Press [1] to add "%s" to the map_list; [2] if you want to give it a value from the map_list',
+                'We could not find a matching key for the status "%s"!' . "\n", 
                 $status
             );
+
+            $stati = array_unique(array_values($this->status_map));
+            foreach ($stati as $available) {
+                printf("%s\n", $available);
+            }
+            
+            printf('Enter the desired value!' . "\n> ");
             $fp = fopen('php://stdin', 'r');
-            $map_check = trim(fgets($fp, 1024));
+            $new_value = trim(fgets($fp, 1024));
             fclose($fp);
-
-            if ($map_check == '1') {
-                $status_map[] = $status;
-            }
-            elseif ($map_check == '2') {
-                printf('Enter the wished value!');
-                $fp = fopen('php://stdin', 'r');
-                $new_value = trim(fgets($fp, 1024));
-                fclose($fp);
-                $status = $new_value;
-
-            }
+            $this->status_map[$status] = $new_value;
         }
-
-        // this does not work
-        // save new mapping to list
 
         $transactions = [
             'type' => 'status',
-            'value' => $status,
+            'value' => $this->status_map[$status],
         ];
         return $transactions;
     }
@@ -207,7 +181,7 @@ trait Transactions
     {
         return [
             'type' => 'projects.set',
-            'value' => $phabricator_project,
+            'value' => [$phabricator_project],
         ];  
     }
 }
