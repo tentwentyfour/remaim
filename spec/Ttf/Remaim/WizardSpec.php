@@ -520,7 +520,7 @@ class WizardSpec extends ObjectBehavior
         ];
 
         $api = [
-            'objectIdentifier' => 'test-phid'
+            'objectIdentifier' => 'test-phid',
             'transactions' => [
                 ['type' => 'title',
                 'value' => 'testsolving',
