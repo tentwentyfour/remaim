@@ -4,8 +4,8 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#composer-lock-the-lock-file",
         "This file is @generated automatically"
     ],
-    "hash": "5a5cabe4d07b2e59c3d5d65c93897b37",
-    "content-hash": "233d42b39e72e7e8cb917a79a886d345",
+    "hash": "9840807a2644087e5c6cc3c2e3db0e4b",
+    "content-hash": "bbd96c82417b953fe6695d888eefc168",
     "packages": [
         {
             "name": "kbsali/redmine-api",
@@ -208,13 +208,13 @@
             "version": "dev-master",
             "source": {
                 "type": "git",
-                "url": "https://github.com/henrikbjorn/PhpSpecCodeCoverageExtension.git",
-                "reference": "4f6c32b536c05f9ed62cae589961a20ca044f816"
+                "url": "https://github.com/tentwentyfour/PhpSpecCodeCoverageExtension.git",
+                "reference": "f4c3056b3fcb98302948d370719bc4d5893b195b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/henrikbjorn/PhpSpecCodeCoverageExtension/zipball/4f6c32b536c05f9ed62cae589961a20ca044f816",
-                "reference": "4f6c32b536c05f9ed62cae589961a20ca044f816",
+                "url": "https://api.github.com/repos/tentwentyfour/PhpSpecCodeCoverageExtension/zipball/f4c3056b3fcb98302948d370719bc4d5893b195b",
+                "reference": "f4c3056b3fcb98302948d370719bc4d5893b195b",
                 "shasum": ""
             },
             "require": {
@@ -236,15 +236,17 @@
             },
             "autoload": {
                 "psr-4": {
-                    "PhpSpec\\Extension\\": "src/"
+                    "HenrikBjorn\\PhpSpecCodeCoverage\\": "src/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
             "description": "Integrates CodeCoverage with PhpSpec",
-            "time": "2016-07-18 06:59:09"
+            "support": {
+                "source": "https://github.com/tentwentyfour/PhpSpecCodeCoverageExtension/tree/master"
+            },
+            "time": "2016-07-28 16:33:55"
         },
         {
             "name": "mockery/mockery",

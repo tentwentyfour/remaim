@@ -269,7 +269,7 @@ class WizardSpec extends ObjectBehavior
         ]);
     }
 
-    function it_caches_phabricator_user_lookups()
+    function xit_caches_phabricator_user_lookups()
     {
         $lookup = [];
         $query_result = [];
