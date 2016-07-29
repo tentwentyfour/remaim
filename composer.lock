@@ -209,12 +209,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/tentwentyfour/PhpSpecCodeCoverageExtension.git",
-                "reference": "0a7f62898a3092ca240ebc659b1c2877e88a53fa"
+                "reference": "9b87a19364937ad2927d2231ab6f756475cfe359"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/tentwentyfour/PhpSpecCodeCoverageExtension/zipball/0a7f62898a3092ca240ebc659b1c2877e88a53fa",
-                "reference": "0a7f62898a3092ca240ebc659b1c2877e88a53fa",
+                "url": "https://api.github.com/repos/tentwentyfour/PhpSpecCodeCoverageExtension/zipball/9b87a19364937ad2927d2231ab6f756475cfe359",
+                "reference": "9b87a19364937ad2927d2231ab6f756475cfe359",
                 "shasum": ""
             },
             "require": {
@@ -246,7 +246,7 @@
             "support": {
                 "source": "https://github.com/tentwentyfour/PhpSpecCodeCoverageExtension/tree/master"
             },
-            "time": "2016-07-29 10:49:39"
+            "time": "2016-07-28 16:33:55"
         },
         {
             "name": "mockery/mockery",
