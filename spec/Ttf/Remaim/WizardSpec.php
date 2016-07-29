@@ -175,7 +175,8 @@ class WizardSpec extends ObjectBehavior
     {
         $project = [
             'id' => 5,
-            'name' => 'Tests'
+            'name' => 'Tests',
+            'description' => 'Test has to ignore me'
         ];
         $this->representProject($project)->shouldReturn("[5 – Tests]\n");
     }
@@ -271,15 +272,289 @@ class WizardSpec extends ObjectBehavior
 
     function xit_caches_phabricator_user_lookups()
     {
-        $lookup = [];
-        $query_result = [];
-          $this->conduit
+        $lookupone = [
+            'James',
+            'Alfred',
+            'John',
+        ];
+
+        $lookuptwo = [  
+            'James',
+            'Alfred',
+        ];
+
+        $query_result = [
+            [
+                'phid' => 'phidone',
+                'realName' => 'James',
+            ],
+            [
+                'phid' => 'phidtwo',
+                'realName' => 'Alfred',
+            ],
+            [
+                'phid' => 'phidthree',
+                'realName' => 'John',
+            ],
+        ];
+
+        $methodoutcomeone = [
+            'phidone',
+            'phidtwo',
+            'phidthree',
+        ];
+
+        $methodoutcometwo = [
+            'phidone',
+            'phidtwo',
+        ];
+        $this->conduit
         ->shouldReceive('callMethodSynchronous')
-        ->with('user.query', $lookup)
+        ->with('user.query', ['realnames' => $lookupone])
         ->times(1)
         ->andReturn($query_result);
 
-        $this->getPhabricatorUserPhid()->shouldReturn();
+        $this->getPhabricatorUserPhid($lookupone)->shouldReturn($methodoutcomeone);
+        $this->getPhabricatorUserPhid($lookuptwo)->shouldReturn($methodoutcometwo);
+    }
+
+    function it_should_return_a_new_created_task_if_it_doesnt_already_exist_in_phabricator()
+    {
+        $priority_map = [
+        'Immediate' => 100, // unbreak now!
+        'Urgent' => 100,    // unbreak now!
+        'High' => 80,       // High
+        'Normal' => 50,     // Normal
+        'Low' => 25         // Low
+         // Wishlist
+        ];
+
+        $tickets = [];
+
+        $description = 'Hey testing this';
+
+        $status_map = [];
+
+        $phabricator_project = [
+            'id' => 34,
+            'phid' => 'test-phid',
+            'name' => '1024 Website',
+
+        ];
+
+        $owner = [
+            'name' => 'Fufufo',
+            'phid' => 'test-phid'
+        ];
+
+        $details = [
+            'issue' => [
+                'id' => 2541,
+                'project' => [
+                    'id' => 25,
+                    'name' => 'Website',
+                ],
+                'tracker' => [
+                    'id' => 1,
+                    'name' => 'Bug',
+                ],
+                'status' => [
+                    'id' => 3,
+                    'name' => 'Resolved',
+                ],
+                'priority' => [
+                    'id' => 4,
+                    'name' => 'Urgent',
+                ],
+                'subject' => 'testsolving',
+                'attachments' => '',
+
+            ]
+        ];
+
+        $api = [
+            'title' => $details['issue']['subject'],
+            'description' => $description,
+            'ownerPHID' => $owner['phid'],
+            'priority' => $priority_map[$details['issue']['priority']['name']],
+            'projectPHIDs' => [
+                $phabricator_project['phid'],
+            ],
+        ];
+
+        $result = [
+            'title' => 'testsolving',
+            'description' => 'Hey testing this',
+            'ownerPHID' => 'test-phid',
+            'priority' => 100,
+            'projectPHIDs' => [
+                'phab-phid'
+            ],
+        ];
+
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('maniphest.createtask', $api)
+        ->times(1)
+        ->andReturn($result);        
+        $this->createManiphestTask($priority_map, $tickets, $details, $description, $owner, $phabricator_project, $status_map)->shouldReturn($result);
+    }
+
+    // TODO: Repair the Status and Priority Transactions
+    // function it_should_return_a_non_empty_ticket_with_the_updated_information()
+    // {
+    //     $priority_map = [
+    //     'Immediate' => 100, // unbreak now!
+    //     'Urgent' => 100,    // unbreak now!
+    //     'High' => 80,       // High
+    //     'Normal' => 50,     // Normal
+    //     'Low' => 25         // Low
+    //      // Wishlist
+    //     ];
+
+    //     $tickets = [
+    //         [
+    //             'title' => 'Replace-me',
+    //             'description' => 'Replace-me',
+    //             'ownerPHID' => 'Replace-me',
+    //             'priority' => 100,
+    //             'projectPHIDs' => [
+    //                 'Replace-me',
+    //             ],
+    //         ],
+    //     ];
+
+    //     $description = 'Hey testing this';
+
+    //     $status_map = [
+    //         'Resolved' => 8,
+    //     ];
+
+    //     $phabricator_project = [
+    //         'id' => 34,
+    //         'phid' => 'test-phid',
+    //         'name' => '1024 Website',
+
+    //     ];
+
+    //     $owner = [
+    //         'name' => 'Fufufo',
+    //         'phid' => 'test-phid'
+    //     ];
+
+    //     $details = [
+    //         'issue' => [
+    //             'id' => 2541,
+    //             'project' => [
+    //                 'id' => 25,
+    //                 'name' => 'Website',
+    //             ],
+    //             'tracker' => [
+    //                 'id' => 1,
+    //                 'name' => 'Bug',
+    //             ],
+    //             'status' => [
+    //                 'id' => 3,
+    //                 'name' => 'Resolved',
+    //             ],
+    //             'priority' => [
+    //                 'id' => 4,
+    //                 'name' => '50',
+    //             ],
+    //             'subject' => 'testsolving',
+    //             'journal' => [
+    //                 'notes' => 'test-description',
+    //             ],
+    //             'watchers' => 'Jona',
+
+    //         ]
+    //     ];
+
+    //     $result = [
+    //         [
+    //         'type' => 'title',
+    //         'value' => 'testsolving',
+    //         ],
+    //         [
+    //         'type' => 'status',
+    //         'value' => 8,
+    //         ],
+    //         [
+    //         'type' => 'comment',
+    //         'value' => 'test-description',
+    //         ],
+    //         [
+    //         'type' => 'subscribers.set',
+    //         'value' => 'Jona',
+    //         ],
+    //         [
+    //         'type' => 'priority',
+    //         'value' => 50,
+    //         ],
+    //     ];
+    
+    //     $this->createManiphestTask($priority_map, $tickets, $details, $description, $owner, $phabricator_project, $status_map)->shouldReturn($result);
+    // }
+
+    function it_should_return_an_updated_phabticket()
+    {
+        $priority_map = [
+        'Immediate' => 100, // unbreak now!
+        'Urgent' => 100,    // unbreak now!
+        'High' => 80,       // High
+        'Normal' => 50,     // Normal
+        'Low' => 25         // Low
+         // Wishlist
+        ];
+
+        $ticket = [
+            [
+                'title' => 'Replace-me',
+                'description' => 'Replace-me',
+                'ownerPHID' => 'Replace-me',
+                'priority' => 100,
+                'projectPHIDs' => [
+                    'Replace-me',
+                ],
+            ],
+        ];
+
+        $api = [
+            'objectIdentifier' => 'test-phid'
+            'transactions' => [
+                ['type' => 'title',
+                'value' => 'testsolving',
+                ],
+                [
+                'type' => 'status',
+                'value' => 'Normal',
+                ],
+                [
+                'type' => 'comment',
+                'value' => 'test-description',
+                ],
+                [
+                'type' => 'subscribers.set',
+                'value' => 'Jona',
+                ],
+                [
+                'type' => 'priority',
+                'value' => 50,
+                ],
+            ],
+        ];
+
+        $result = [
+            'title' => 'testsolving',
+
+        ];
+
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('maniphest.edit', $api)
+        ->times(1)
+        ->andReturn($result);        
+        $this->createManiphestTask($priority_map, $tickets, $details, $description, $owner, $phabricator_project, $status_map)->shouldReturn($result);
     }
 
 }
