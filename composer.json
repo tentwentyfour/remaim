@@ -15,7 +15,8 @@
         "phpspec/phpspec": "~3.0",
         "squizlabs/php_codesniffer": "~1.5",
         "mockery/mockery": "~0.9",
-        "henrikbjorn/phpspec-code-coverage": "dev-master"
+        "henrikbjorn/phpspec-code-coverage": "dev-master",
+        "php-mock/php-mock-mockery": "^1.1"
     },
     "authors": [
         {

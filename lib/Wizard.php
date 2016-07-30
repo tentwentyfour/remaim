@@ -17,11 +17,13 @@
 
 namespace Ttf\Remaim;
 
+use Redmine\Client;
 use Redmine\Api\Issue;
 
 class Wizard
 {
     use Traits\Transactions;
+    use Traits\FileManager;
 
     private $phabricator_users = [];
     private $config;
@@ -44,7 +46,7 @@ class Wizard
      * @param \Redmine\Client $redmine Instance of the Redmine API Client
      * @param \ConduitClient  $conduit Instance of ConduitClient
      */
-    public function __construct(array $config, \Redmine\Client $redmine, $conduit)
+    public function __construct(array $config, Client $redmine, $conduit)
     {
         $this->config = $config;
         $this->redmine = $redmine;
@@ -73,14 +75,19 @@ class Wizard
     {
         try {
             $this->testConnectionToRedmine();
-            $projects = $this->listRedmineProjects();
-            $redmine_project = $this->selectAProject($projects);
-            $groups = $this->lookupGroupProjects();
-            $policies = $this->definePolicies($groups);
-            $phabricator_project = $this->selectOrCreatePhabricatorProject($redmine_project, $policies);
+
+            $redmine_project = $this->selectAProject($this->listRedmineProjects());
             $issues = $this->getIssuesForProject($redmine_project);
-            $this->identifyRedmineAndTargetphabricatorProject($redmine_project, $phabricator_project, $issues);
-            $results = $this->findOrCreateTicketFromRedmineInPhab(
+
+            $phabricator_project = $this->selectOrCreatePhabricatorProject($redmine_project);
+
+            $this->presentSummary(
+                $redmine_project,
+                $phabricator_project,
+                $issues
+            );
+
+            $results = $this->migrateIssues(
                 $issues,
                 $phabricator_project,
                 $policies
@@ -93,17 +100,13 @@ class Wizard
 
     /**
      * Can we find another, simpler method for checking connection than this?
-     * Unfortunately, the Client does not have a way of checking whether the connection was successfull,
+     * Unfortunately, the Client does not have a way of checking whether the connection was successful,
      * since it never established a connection.
      * @return [type] [description]
      */
     public function testConnectionToRedmine()
     {
-        try {
-            $project_listing = $this->redmine->project->listing();
-        } catch (\Exception $e) {
-            var_dump($e); exit;
-        }
+        $project_listing = $this->redmine->project->listing();
         if (empty($project_listing) || !is_array($project_listing)) {
             throw new \RuntimeException(
                 'Your project list is empty or we were unable to connect to your Redmine instance.
@@ -126,20 +129,7 @@ class Wizard
         return $selectedIndex;
     }
 
-    public function createOrUpdatePhabTicket($transactions, $taskPHID = null)
-    {
-        $api_parameters = [
-          'objectIdentifier' => $taskPHID,
-          'transactions' => $transactions
-        ];
-
-        return $this->conduit->callMethodSynchronous(
-            'maniphest.edit',
-            $api_parameters
-        );
-    }
-
-    public function identifyRedmineAndTargetphabricatorProject($redmine_project, $phabricator_project, $issues)
+    public function presentSummary($redmine_project, $phabricator_project, $issues)
     {
         $project_detail = $this->redmine->project->show($redmine_project);
 
@@ -178,46 +168,68 @@ class Wizard
         if (!$tasks || empty($tasks['issues'])) {
             throw new \RuntimeException(
                 sprintf(
-                    "No tasks found on project with id %d\n",
+                    "No tasks found on project with id %d.\n There is nothing to do, I'm going home.\nYou know where to find me if you ever need me again!\n",
                     $project_id
                 )
             );
         }
-        // DR: would be better to return $tasks['issues'];
-        // then to assign them on the class level.
-        $issues = $tasks['issues'];
-        return $issues;
+        return $tasks['issues'];
     }
 
-    public function selectOrCreatePhabricatorProject($project_id, $policies)
+    public function selectOrCreatePhabricatorProject($project_id)
     {
-        print("Please enter the id/slug of the project in phabricator.\nPress [Enter] to see a list of available projects or\nEnter [0] to create a new project from the Redmine project's details\n> ");
+        print("Please enter the id/slug of the project in Phabricator.\nPress [Enter] to see a list of available projects or\nEnter [0] to create a new project from the Redmine project's details\n> ");
         $fp = fopen('php://stdin', 'r');
         $choice = trim(fgets($fp, 1024));
         fclose($fp);
-        return $this->actOnChoice($choice, $project_id, $policies);
+        return $this->actOnChoice($choice, $project_id);
     }
 
-    public function actOnChoice($choice, $project_id, $policies)
+    /**
+     * Retrieves a list of all available (even inactive)
+     * projects on your phabricator instance.
+     *
+     * @return array List of phabricator projects
+     */
+    public function getAllPhabricatorProjects()
+    {
+        $result = $this->conduit->callMethodSynchronous(
+            'project.search',
+            ['queryKey' => 'all']
+        );
+
+        if ($result && isset($result['data'])) {
+            return array_reduce($result['data'], function ($carry, $project) {
+                $carry[$project['id']] = [
+                    'id' => $project['id'],
+                    'phid' => $project['phid'],
+                    'name' => $project['fields']['name'],
+                ];
+                return $carry;
+            });
+        }
+    }
+
+    public function actOnChoice($choice, $redmine_project)
     {
         switch ($choice) {
             case '':
+                $projects = $this->getAllPhabricatorProjects();
+                ksort($projects);
+                $project = $this->selectAProject($projects);
 
-                $api_parameters = [
-                    'ids' => [],
-                ];
-                $result = $this->conduit->callMethodSynchronous('project.query', $api_parameters);
-                var_dump($result);
-
-                // TO BE FINISHED
+                if ('0' === $project) {
+                    $this->selectOrCreatePhabricatorProject($redmine_project);
+                } elseif (array_key_exists($project, $projects)) {
+                    return $projects[$project];
+                }
                 break;
             case '0':
-                $detail = $this->redmine->project->show(
-                    $project_id
-                );
+                $policies = $this->definePolicies($this->lookupGroupProjects());
+                $detail = $this->redmine->project->show($redmine_project);
 
                 $phab_members = $this->getPhabricatorUserPhid(
-                    $this->getRedmineProjectMembers($project_id)
+                    $this->getRedmineProjectMembers($redmine_project)
                 );
 
                 $api_parameters = [
@@ -296,6 +308,11 @@ class Wizard
         );
     }
 
+    /**
+     * Looks up projects in phabricator of type "group"
+     *
+     * @return array Result of lookup
+     */
     public function lookupGroupProjects()
     {
         $api_parameters = [
@@ -308,6 +325,14 @@ class Wizard
         return $this->conduit->callMethodSynchronous('project.search', $api_parameters);
     }
 
+    /**
+     * Allow the user to select a group that will
+     * be used for view and edit policies for both
+     * projects and tasks creaed in maniphest.
+     *
+     * @param  array $groups Groups found by self::lookupGroupPojects()
+     * @return array         Array containing PHIDs for view and edit policies
+     */
     public function definePolicies($groups)
     {
         $i = 0;
@@ -340,8 +365,10 @@ class Wizard
     }
 
     /**
-     * [findPhabProjectWithIdSlug description]
+     * Find an existing phabricator project by either its id or slug
+     *
      * @param  [type] $api_parameters [description]
+     *
      * @return [type]                 [description]
      */
     public function findPhabProjectWithIdSlug($api_parameters)
@@ -424,12 +451,17 @@ class Wizard
         return $string;
     }
 
+    /**
+     * Generic choice
+     * @param  [type] $projects [description]
+     * @return [type]           [description]
+     */
     public function selectAProject($projects)
     {
         foreach ($projects as $toplevel) {
             print($this->representProject($toplevel));
         }
-        print('Select a project: [0] ' . "\n> ");
+        print('Select a project ID or enter 0 to go back: ' . "\n> ");
         $fp = fopen('php://stdin', 'r');
         $project = trim(fgets($fp, 1024));
         fclose($fp);
@@ -483,7 +515,7 @@ class Wizard
         return $this->getPhabricatorUserPhid($watchers);
     }
 
-    public function findOrCreateTicketFromRedmineInPhab(
+    public function migrateIssues(
         $issues,
         $ph_project,
         $policies
@@ -501,25 +533,26 @@ class Wizard
                     ]
                 ]
             );
-            $owner = $this->grabOwnerPhid($details['issue']);
 
-            $tickets = [];
+            $owner = $this->grabOwnerPhid($details['issue']);
+            $tasks = [];
             $description = $details['issue']['description'];
+
             if (!empty($description)) {
-                $description = str_replace("\r", '', $description);
+                $details['issue']['description'] = str_replace("\r", '', trim($description));
                 $api_parameters = [
                     'projectPHIDs' => [$ph_project['phid']],
-                    'fullText' => $description,
+                    'fullText' => $details['issue']['description'],
                 ];
-                $tickets = $this->conduit->callMethodSynchronous(
+                $tasks = $this->conduit->callMethodSynchronous(
                     'maniphest.query',
                     $api_parameters
                 );
             }
 
             return $this->createManiphestTask(
-                $tickets,
-                $details,
+                $tasks,
+                $details['issue'],
                 $description,
                 $owner,
                 $ph_project['phid'],
@@ -530,7 +563,7 @@ class Wizard
 
     public function createManiphestTask(
         $tasks,
-        $details,
+        $issue,
         $description,
         $owner,
         $project_phid,
@@ -563,47 +596,85 @@ class Wizard
 
         $transactions = $this->assembleTransactionsFor(
             $project_phid,
-            $details,
+            $issue,
             $description,
             $policies,
             $task,
             $owner
         );
 
-        return $this->createOrUpdatePhabTicket($transactions, $task['phid']);
+        return $this->createOrUpdatePhabTicket($transactions, $task);
     }
 
+    /**
+     * Calls conduit API with the given identifier (if any)
+     * and transactions. Returns the API call result.
+     *
+     * @param  array  $transactions Array of transactions to be applied
+     * @param  array  $task         Existing task or empty array
+     * @return array                Results of API call
+     */
+    public function createOrUpdatePhabTicket($transactions, $task = [])
+    {
+        $identifier = isset($task['phid']) ? $task['phid'] : null;
+        return $this->conduit->callMethodSynchronous(
+            'maniphest.edit',
+            [
+              'objectIdentifier' => $identifier,
+              'transactions' => $transactions,
+            ]
+        );
+    }
+
+    /**
+     * Assembles a collection of transactions to be applied to each
+     * issue that will be migrated.
+     *
+     * @param  [type]  $project_phid     [description]
+     * @param  [type]  $details          [description]
+     * @param  [type]  $task_description [description]
+     * @param  [type]  $policies         [description]
+     * @param  array   $task             [description]
+     * @param  boolean $assignee         [description]
+     * @return [type]                    [description]
+     */
     public function assembleTransactionsFor(
         $project_phid,
-        $details,
+        $issue,
         $task_description,
         $policies,
         $task = [],
         $assignee = false
     ) {
         $transactions = [];
-        $transactions[] = $this->transactPhabProjectPhid($project_phid);
+        $transactions[] = $this->createProjectTransaction($project_phid);
+        $transactions[] = $this->createTitleTransaction(
+            $issue,
+            $task
+        );
+        $transactions[] = $this->createDescriptionTransaction(
+            $issue,
+            $policies,
+            $task
+        );
+        $transactions[] = $this->createStatusTransaction($issue);
+        $transactions[] = $this->createSubscriberTransaction($issue);
+        $transactions[] = $this->createPriorityTransaction($issue);
+
         if ($assignee) {
             $transactions[] = $this->createOwnerTransaction($assignee['phid']);
         }
-        $transactions[] = $this->createTitleTransaction($details['issue'], $task);
-        $transactions[] = $this->createDescriptionTransaction(
-            $details,
-            $task_description
-        );
-        $transactions[] = $this->transactStatus($details);
-        $transactions[] = $this->createSubscriberTransaction($details['issue']);
-        $transactions[] = $this->createPriorityTransaction($details['issue']);
 
         $transactions = array_merge(
             $transactions,
-            $this->createCommentTransactions($details)
+            $this->createCommentTransactions($issue)
         );
 
         $transactions = array_merge(
             $transactions,
-            $this->transactPolicy($details, $policies)
+            $this->createPolicyTransactions($policies)
         );
+
         return array_values(
             array_filter($transactions, function ($transaction) {
                 return !empty($transaction);
@@ -611,19 +682,21 @@ class Wizard
         );
     }
 
+    /**
+     * Grab the PHID for a user that will become the Owner of the
+     * task.
+     *
+     * @param  array $issue Issue detail from redmine
+     *
+     * @return String       Owner PHID
+     */
     public function grabOwnerPhid($issue)
     {
         if (!isset($issue['assigned_to'])) {
             return false;
         }
 
-        $api_parameters = [
-            'realnames' => [$issue['assigned_to']['name']],
-        ];
-        $result = $this->conduit->callMethodSynchronous(
-            'user.query',
-            $api_parameters
-        );
-        return array_pop($result);
+        $phab_ids = $this->getPhabricatorUserPhid([$issue['assigned_to']['name']]);
+        return $phab_ids[0];
     }
 }

@@ -8,6 +8,7 @@ namespace spec\Ttf\Remaim;
 use PhpSpec\ObjectBehavior;
 use Prophecy\Argument;
 use Mockery as m;
+use phpmock\mockery\PHPMockery;
 
 use Ttf\Remaim\Wizard;  // System under test
 
@@ -326,6 +327,43 @@ class WizardSpec extends ObjectBehavior
         $this->getPhabricatorUserPhid($lookuptwo)->shouldReturn($methodoutcometwo);
     }
 
+    function it_looks_up_assignee_phids_from_phabricator()
+    {
+        $issue = [
+            'assigned_to' => [
+                'name' => 'Albert Einstein',
+            ]
+        ];
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('user.query', ['realnames' => ['Albert Einstein']])
+        ->once()
+        ->andReturn([
+            [
+                'phid' => 'PHID-user-albert',
+                'realName' => 'Albert Einstein',
+            ]
+        ]);
+        $this->grabOwnerPhid($issue)->shouldReturn('PHID-user-albert');
+    }
+
+    function it_returns_an_empty_array_if_no_existing_user_was_found()
+    {
+        $lookupone = [
+            'James',
+            'Alfred',
+        ];
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('user.query', [
+            'realnames' => $lookupone
+        ])
+        ->once()
+        ->andReturn([]);
+
+        $this->getPhabricatorUserPhid($lookupone)->shouldReturn([]);
+    }
+
     function it_generates_a_title_transaction_for_new_tasks()
     {
         $details = [
@@ -335,7 +373,8 @@ class WizardSpec extends ObjectBehavior
                 'status' => [
                     'id' => 1,
                     'name' => 'Resolved',
-                ]
+                ],
+                'description' => 'A random description of a task',
             ]
         ];
         $policies = [
@@ -372,297 +411,253 @@ class WizardSpec extends ObjectBehavior
 
         $this->assembleTransactionsFor(
             'PHID-random',
-            $details,
+            $details['issue'],
             'A random description of a task',
             $policies
         )->shouldReturn($expectedTransactions);
-
     }
 
     function it_generates_a_title_transaction_if_the_title_has_changed()
     {
+        $details = [
+            'issue' => [
+                'subject' => 'A changed Subject',
+                'attachments' => [],
+                'status' => [
+                    'id' => 1,
+                    'name' => 'Resolved',
+                ],
+                'description' => 'A random description of a task',
+            ]
+        ];
+        $policies = [
+            'view' => 'PHID-foobar',
+            'edit' => 'PHID-barbaz',
+        ];
 
+        $task = [
+            'title' => 'Test Subject',
+            'description' => '',
+        ];
+
+        $expectedTransactions = [
+            [
+                'type' => 'projects.set',
+                'value' => ['PHID-random'],
+            ],
+            [
+                'type' => 'title',
+                'value' => 'A changed Subject',
+            ],
+            [
+                'type' => 'description',
+                'value' => 'A random description of a task',
+            ],
+            [
+                'type' => 'status',
+                'value' => 'resolved',
+            ],
+            [
+                'type' => 'view',
+                'value' => 'PHID-foobar',
+            ],
+            [
+                'type' => 'edit',
+                'value' => 'PHID-barbaz',
+            ]
+        ];
+
+        $this->assembleTransactionsFor(
+            'PHID-random',
+            $details['issue'],
+            'A random description of a task',
+            $policies,
+            $task
+        )->shouldReturn($expectedTransactions);
     }
 
     function it_does_not_generate_a_transaction_if_the_title_has_not_changed()
     {
-
-    }
-
-    function it_assembles_an_array_of_transactions_from_ticket_details()
-    {
-
-    }
-
-    function it_filters_out_empty_transactions()
-    {
-        // $this->transactTitle()->willReturn([]);
-        // $this->assembleTransactionsFor()->shouldReturn([]);
-    }
-
-    function xit_creates_a_new_task_if_no_match_is_found_in_phabricator()
-    {
-        $priority_map = [
-            'Immediate' => 100, // unbreak now!
-            'Urgent' => 100,    // unbreak now!
-            'High' => 80,       // High
-            'Normal' => 50,     // Normal
-            'Low' => 25         // Low
-            // Wishlist
-        ];
-
-        $tickets = [];
-        $description = 'Hey testing this';
-        $status_map = [];
-        $phabricator_project = [
-            'id' => 42,
-            'phid' => 'test-phid',
-            'name' => 'Foo project',
-        ];
-
-        $owner = [
-            'name' => 'Foo Bar',
-            'phid' => 'test-phid'
-        ];
-
         $details = [
             'issue' => [
-                'id' => 2541,
-                'project' => [
-                    'id' => 42,
-                    'name' => 'Foo project',
-                ],
-                'tracker' => [
-                    'id' => 1,
-                    'name' => 'Bug',
-                ],
+                'subject' => 'Test Subject',
+                'attachments' => [],
                 'status' => [
-                    'id' => 3,
+                    'id' => 1,
                     'name' => 'Resolved',
                 ],
-                'priority' => [
-                    'id' => 4,
-                    'name' => 'Urgent',
-                ],
-                'subject' => 'testsolving',
-                'attachments' => [],
+                'description' => 'A random description of a task',
+            ]
+        ];
+        $policies = [
+            'view' => 'PHID-foobar',
+            'edit' => 'PHID-barbaz',
+        ];
+
+        $task = [
+            'title' => 'Test Subject',
+            'description' => '',
+        ];
+
+        $expectedTransactions = [
+            [
+                'type' => 'projects.set',
+                'value' => ['PHID-random'],
+            ],
+            [
+                'type' => 'description',
+                'value' => 'A random description of a task',
+            ],
+            [
+                'type' => 'status',
+                'value' => 'resolved',
+            ],
+            [
+                'type' => 'view',
+                'value' => 'PHID-foobar',
+            ],
+            [
+                'type' => 'edit',
+                'value' => 'PHID-barbaz',
             ]
         ];
 
-        // $api = [
-        //     'title' => $details['issue']['subject'],
-        //     'description' => $description,
-        //     'ownerPHID' => $owner['phid'],
-        //     'priority' => $priority_map[$details['issue']['priority']['name']],
-        //     'projectPHIDs' => [
-        //         $phabricator_project['phid'],
-        //     ],
-        // ];
+        $this->assembleTransactionsFor(
+            'PHID-random',
+            $details['issue'],
+            'A random description of a task',
+            $policies,
+            $task
+        )->shouldReturn($expectedTransactions);
+    }
+
+    /**
+     * I don't understand why this test makes the maniphest.querystatuses expectation
+     * from the constructor fail, even if it contains but a single print statement.
+     */
+    function xit_attaches_uploaded_files_to_the_task_description()
+    {
+        $mock = PHPMockery::mock(__NAMESPACE__, 'file_get_contents')->andReturn('blablabla');
+        $details = [
+            'issue' => [
+                'subject' => 'Test Subject',
+                'attachments' => [
+                    [
+                        'filename' => 'Testfile.png',
+                    ]
+                ],
+                'status' => [
+                    'id' => 1,
+                    'name' => 'Resolved',
+                ],
+                'description' => 'A random description of a task',
+            ]
+        ];
+        $policies = [
+            'view' => 'PHID-foobar',
+            'edit' => 'PHID-barbaz',
+        ];
+
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('file.upload', [
+                'name' => 'Testfile.png',
+                'data_base64' => base64_encode('blablabla'),
+                'viewPolicy' => $policies['view'],
+        ])
+        ->once()
+        ->andReturn('PHID-file-xyz');
+
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('file.info', [
+                'phid' => 'PHID-file-xyz',
+            ])
+        ->once()
+        ->andReturn('F123456');
+
+        $expectedTransactions = [
+            [
+                'type' => 'projects.set',
+                'value' => ['PHID-random'],
+            ],
+            [
+                'type' => 'title',
+                'value' => 'Test Subject',
+            ],
+            [
+                'type' => 'description',
+                'value' => "A random description of a task\n\n{F123456}",
+            ],
+            [
+                'type' => 'status',
+                'value' => 'resolved',
+            ],
+            [
+                'type' => 'view',
+                'value' => 'PHID-foobar',
+            ],
+            [
+                'type' => 'edit',
+                'value' => 'PHID-barbaz',
+            ]
+        ];
+
+        $this->assembleTransactionsFor(
+            'PHID-random',
+            $details['issue'],
+            'A random description of a task',
+            $policies,
+            $task
+        )->shouldReturn($expectedTransactions);
+    }
+
+    /**
+     * Same problem as above
+     */
+    function xit_creates_a_new_task_if_no_match_is_found_in_phabricator()
+    {
+        $issue = [
+            'subject' => 'Test Subject',
+            'attachments' => [],
+            'status' => [
+                'id' => 1,
+                'name' => 'Resolved',
+            ],
+            'description' => 'A random description of a task',
+        ];
+        $description = $issue['description'];
+        $policies = [
+            'view' => 'PHID-foobar',
+            'edit' => 'PHID-barbaz',
+        ];
 
         $result = [
-            'title' => 'testsolving',
-            'description' => 'Hey testing this',
-            'ownerPHID' => 'test-phid',
+            'title' => 'Test Subject',
+            'description' => 'A random description of a task',
+            'ownerPHID' => 'PHID-owner',
             'priority' => 100,
             'projectPHIDs' => [
-                'phab-phid'
+                'PHID-project'
             ],
         ];
 
         $this->conduit
         ->shouldReceive('callMethodSynchronous')
-        ->with('maniphest.edit')
-        ->times(1)
+        ->with(
+            'maniphest.edit',
+            \Mockery::type('array')
+        )
+        ->once()
         ->andReturn($result);
 
         $this->createManiphestTask(
-            $tickets,
+            [],
             $details,
             $description,
-            $owner,
-            $phabricator_project,
+            'PHID-owner',
+            'PHID-project',
             $policies
         )->shouldReturn($result);
     }
-
-    // TODO: Repair the Status and Priority Transactions
-    // function it_should_return_a_non_empty_ticket_with_the_updated_information()
-    // {
-    //     $priority_map = [
-    //     'Immediate' => 100, // unbreak now!
-    //     'Urgent' => 100,    // unbreak now!
-    //     'High' => 80,       // High
-    //     'Normal' => 50,     // Normal
-    //     'Low' => 25         // Low
-    //      // Wishlist
-    //     ];
-
-    //     $tickets = [
-    //         'PHID-TASK-biummspek2k4372ciaud' => [
-    //             'phid' => 'testphid',
-    //             'ownerPHID' => 'Replace-my ownerPHID',
-    //             'priority' => 'Urgent',
-    //             'title' => 'Replace-my title',
-    //             'description' => 'Replace-my description',
-    //             'projectPHIDs' => [
-    //                 'Replace-my projectPHID',
-    //             ],
-    //         ],
-    //     ];
-
-    //     $description = 'Hey testing this';
-
-    //     $status_map = [
-    //         'Urgent' => 8,
-    //     ];
-
-    //     $phabricator_project = [
-    //         'id' => 34,
-    //         'phid' => 'test-phid',
-    //         'name' => '1024 Website',
-
-    //     ];
-
-    //     $owner = [
-    //         'name' => 'Fufufo',
-    //         'phid' => 'test-phid'
-    //     ];
-
-    //     $details = [
-    //         'issue' => [
-    //             'id' => 2541,
-    //             'project' => [
-    //                 'id' => 25,
-    //                 'name' => 'Website',
-    //             ],
-    //             'tracker' => [
-    //                 'id' => 1,
-    //                 'name' => 'Bug',
-    //             ],
-    //             'status' => [
-    //                 'id' => 3,
-    //                 'name' => 8,
-    //             ],
-    //             'priority' => [
-    //                 'id' => 4,
-    //                 'name' => 'Low',
-    //             ],
-    //             'subject' => 'titlesolved',
-    //             'journals' => [
-    //                 'notes' => 'test-description',
-    //             ],
-    //             'watchers' => [],
-    //             'attachments' => [],
-
-    //         ]
-    //     ];
-
-    //     $result = [
-    //         [
-    //         'type' => 'title',
-    //         'value' => 'titlesolved',
-    //         ],
-    //         [
-    //         'type' => 'status',
-    //         'value' => 'Urgent',
-    //         ],
-    //         [
-    //         'type' => 'comment',
-    //         'value' => 'test-description',
-    //         ],
-    //         [
-    //         'type' => 'priority',
-    //         'value' => 'Low',
-    //         ],
-    //     ];
-
-    //     $this->createManiphestTask($priority_map, $tickets, $details, $description, $owner, $phabricator_project, $status_map)->shouldReturn($result);
-    // }
-
-    function xit_should_return_an_updated_phabticket()
-    {
-        $priority_map = [
-        'Immediate' => 100, // unbreak now!
-        'Urgent' => 100,    // unbreak now!
-        'High' => 80,       // High
-        'Normal' => 50,     // Normal
-        'Low' => 25         // Low
-         // Wishlist
-        ];
-
-        $ticket = [
-            'phid' => 'testphid',
-            'ownerPHID' => 'Replace-my ownerPHID',
-            'priority' => 'Urgent',
-            'title' => 'Replace-my title',
-            'description' => 'Replace-my description',
-            'projectPHIDs' => [
-                'Replace-my projectPHID',
-            ],
-        ];
-
-        $api = [
-            'objectIdentifier' => 'test-phid',
-            'transactions' => [
-                ['type' => 'title',
-                'value' => 'testsolving',
-                ],
-                [
-                'type' => 'status',
-                'value' => 'Normal',
-                ],
-                [
-                'type' => 'comment',
-                'value' => 'test-description',
-                ],
-                [
-                'type' => 'subscribers.set',
-                'value' => 'Jona',
-                ],
-                [
-                'type' => 'priority',
-                'value' => 'Immediate',
-                ],
-            ],
-        ];
-
-        $transactions = [
-                ['type' => 'title',
-                'value' => 'testsolving',
-                ],
-                [
-                'type' => 'status',
-                'value' => 'Normal',
-                ],
-                [
-                'type' => 'comment',
-                'value' => 'test-description',
-                ],
-                [
-                'type' => 'subscribers.set',
-                'value' => 'Jona',
-                ],
-                [
-                'type' => 'priority',
-                'value' => 'Immediate',
-                ],
-        ];
-
-        $result = [
-            'title' => 'testsolving',
-            'status' => 'Normal',
-            'comment' => 'test-description',
-            'subscribers.set' => 'Jona',
-            'Priority' => 'Immediate',
-
-        ];
-
-        $this->conduit
-        ->shouldReceive('callMethodSynchronous')
-        ->with('maniphest.edit', $api)
-        ->times(1)
-        ->andReturn($result);
-        $this->updatePhabTicket($ticket, $transactions)->shouldReturn($result);
-    }
-
 }

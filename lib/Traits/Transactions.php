@@ -16,12 +16,11 @@
  *
  */
 
-
 namespace Ttf\Remaim\Traits;
 
 trait Transactions
 {
-    public function transactPolicy($details, $policies)
+    public function createPolicyTransactions($policies)
     {
         $viewPolicy = [
             'type' => 'view',
@@ -133,9 +132,9 @@ trait Transactions
         return $transactions;
     }
 
-    public function transactStatus($details)
+    public function createStatusTransaction($issue)
     {
-        $status = $details['issue']['status']['name'];
+        $status = $issue['status']['name'];
 
         if (!array_key_exists($status, $this->status_map)) {
             printf(
@@ -171,35 +170,16 @@ trait Transactions
      *
      * @return array               Transaction partial
      */
-    public function createDescriptionTransaction($details, $description)
+    public function createDescriptionTransaction($issue, $policies, $task = null)
     {
-        $file_ids = [];
-        $description = trim($description);
-        foreach ($details['issue']['attachments'] as $attachment) {
-            $url = preg_replace(
-                '/http(s?):\/\//',
-                sprintf(
-                    'https://%s:%s@',
-                    $this->config['redmine']['user'],
-                    $this->config['redmine']['password']
-                ),
-                $attachment['content_url']
-            );
+        $description = isset($issue['description']) ? $issue['description'] : '';
+        $file_ids = $this->uploadFiles($issue, $policies['view']);
 
-            $encoded = base64_encode(file_get_contents($url));
-            $api_parameters = [
-                'name' => $attachment['filename'],
-                'data_base64' => $encoded
-               // 'viewPolicy' => todo!
-            ];
-            $file_phid = $this->conduit->callMethodSynchronous('file.upload', $api_parameters);
-            $api_parameters = array(
-              'phid' => $file_phid,
-            );
-            $result = $this->conduit->callMethodSynchronous('file.info', $api_parameters);
-            $file_ids[] = sprintf('{%s}', $result['objectName']);
+        if (empty($file_ids)
+            && (!empty($task) && $description === $task['description'])
+        ) {
+            return [];
         }
-
 
         if (!empty($file_ids)) {
             $files = implode(' ', $file_ids);
@@ -231,6 +211,14 @@ trait Transactions
         }
     }
 
+    /**
+     * Returns a transaction that sets the owner/assignee of a
+     * maniphest task.
+     *
+     * @param  String $owner Owner PHID
+     *
+     * @return array        Transaction array
+     */
     public function createOwnerTransaction($owner)
     {
         return [
@@ -239,11 +227,18 @@ trait Transactions
         ];
     }
 
-    public function transactPhabProjectPhid($phabricator_project)
+    /**
+     * Creates a transaction to assign this task to a
+     * Phabricator project.
+     *
+     * @param  String $project_phid PHID of the project this task should be assigned to
+     * @return array                Project transaction
+     */
+    public function createProjectTransaction($project_phid)
     {
         return [
             'type' => 'projects.set',
-            'value' => [$phabricator_project],
+            'value' => [$project_phid],
         ];
     }
 }
