@@ -20,13 +20,22 @@ namespace Ttf\Remaim\Traits;
 
 trait FileManager
 {
+    /**
+     * Downloads files from the redmine instance, then uploads them back to
+     * phabricator.
+     *
+     * @param  array  $issue  Redmine issue details
+     * @param  string $policy ViewPolicy that ought to be applied to the file
+     *
+     * @return array          An array of file info details
+     */
     public function uploadFiles($issue, $policy)
     {
         return array_map(function ($attachment) use ($policy) {
             $url = preg_replace(
                 '/http(s?):\/\//',
                 sprintf(
-                    'https://%s:%s@',
+                    'http${1}://%s:%s@',
                     $this->config['redmine']['user'],
                     $this->config['redmine']['password']
                 ),
@@ -34,6 +43,7 @@ trait FileManager
             );
 
             $encoded = base64_encode(file_get_contents($url));
+
             $file_phid = $this->conduit->callMethodSynchronous(
                 'file.upload',
                 [
@@ -47,6 +57,13 @@ trait FileManager
         }, $issue['attachments']);
     }
 
+    /**
+     * Fetch file information
+     *
+     * @param  string $file_phid Phabricator File PHID
+     *
+     * @return array             Information about the given file
+     */
     public function fetchFileInfo($file_phid)
     {
         return $result = $this->conduit->callMethodSynchronous(

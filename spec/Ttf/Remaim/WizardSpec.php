@@ -35,16 +35,24 @@ class WizardSpec extends ObjectBehavior
     {
         $config = [
             'redmine' => [
+                'user' => 'Hank',
+                'password' => 'ImNotMoody',
             ],
             'phabricator' => [
+                'host' => 'https://localhost',
             ],
+            'priority_map' => [
+                'Urgent' => 100,
+                'Normal' => 50,
+                'Low' => 25
+            ]
         ];
         // Proxied partial mock, see http://docs.mockery.io/en/latest/reference/partial_mocks.html#proxied-partial-mock
-        $this->conduit = m::mock(new \ConduitClient('https://localhost'));
+        $this->conduit = m::mock(new \ConduitClient($config['phabricator']['host']));
         $this->conduit
         ->shouldReceive('callMethodSynchronous')
         ->with('maniphest.querystatuses', [])
-        ->times(1)
+        ->once()
         ->andReturn(['statusMap' => [
             'open' => 'Open',
             'resolved' => 'Resolved',
@@ -67,7 +75,7 @@ class WizardSpec extends ObjectBehavior
     {
         $redmine->api('project')->willReturn($project);
         $project->listing()->shouldBeCalled();
-        $this->shouldThrow('\RuntimeException')->duringTestConnectionToRedmine();
+        $this->shouldThrow('\RuntimeException')->duringAssertConnectionToRedmine();
     }
 
     function it_returns_true_if_it_can_connect_to_redmine(Client $redmine, Project $project)
@@ -77,7 +85,7 @@ class WizardSpec extends ObjectBehavior
         $project->listing()->willReturn([
             'Website' => [1]
         ]);
-        $this->testConnectionToRedmine()->shouldReturn(true);
+        $this->assertConnectionToRedmine()->shouldReturn(true);
     }
 
     function it_throws_an_exception_if_redmine_returns_an_empty_value(Client $redmine, Project $project)
@@ -85,7 +93,7 @@ class WizardSpec extends ObjectBehavior
         $redmine->api('project')->willReturn($project);
         $project->listing()->shouldBeCalled();
         $project->listing()->willReturn();
-        $this->shouldThrow('\RuntimeException')->duringTestConnectionToRedmine();
+        $this->shouldThrow('\RuntimeException')->duringAssertConnectionToRedmine();
     }
 
     function it_throws_an_exception_if_redmine_returns_an_non_array_value(Client $redmine, Project $project)
@@ -93,7 +101,7 @@ class WizardSpec extends ObjectBehavior
         $redmine->api('project')->willReturn($project);
         $project->listing()->shouldBeCalled();
         $project->listing()->willReturn(1);
-        $this->shouldThrow('\RuntimeException')->duringTestConnectionToRedmine();
+        $this->shouldThrow('\RuntimeException')->duringAssertConnectionToRedmine();
     }
 
     function it_is_able_to_look_up_a_phabricator_project_by_its_id()
@@ -111,9 +119,9 @@ class WizardSpec extends ObjectBehavior
         $this->conduit
         ->shouldReceive('callMethodSynchronous')
         ->with('project.query', $lookup)
-        ->times(1)
+        ->once()
         ->andReturn($query_result);
-        $this->findPhabProjectWithIdSlug($lookup)->shouldReturn($project_array);
+        $this->findPhabricatorProject($lookup)->shouldReturn($project_array);
     }
 
     function it_returns_a_structured_list_of_projects(Client $redmine, Project $project)
@@ -148,32 +156,37 @@ class WizardSpec extends ObjectBehavior
         ]);
 
         $project_array = [
-            [
-                'id' => 5,
-                'name' => 'Project one',
-                'identifier' => 'project_one',
-                'description' => 'The first project',
-                'status' => 1,
-                'created_on'  => "2013-05-16T18:40:18Z",
-                'updated_on' => "2013-05-16T18:40:18Z",
-                'parent' => [
-                    'id' => 0
-                ],
-                'children' => [
-                    [
-                        'id' => 6,
-                        'name' => 'Project two',
-                        'identifier' => 'project_two',
-                        'description' => 'The second project',
-                        'status' => 1,
-                        'parent' => [
-                            'id' => 5
-                        ],
-                        'created_on'  => "2013-05-16T18:40:18Z",
-                        'updated_on' => "2013-05-16T18:40:18Z",
-                        'children' => []
+            'total_count' => 2,
+            'lowest' => 5,
+            'highest' => 6,
+            'projects' => [
+                [
+                    'id' => 5,
+                    'name' => 'Project one',
+                    'identifier' => 'project_one',
+                    'description' => 'The first project',
+                    'status' => 1,
+                    'created_on'  => "2013-05-16T18:40:18Z",
+                    'updated_on' => "2013-05-16T18:40:18Z",
+                    'parent' => [
+                        'id' => 0
                     ],
-                ],
+                    'children' => [
+                        [
+                            'id' => 6,
+                            'name' => 'Project two',
+                            'identifier' => 'project_two',
+                            'description' => 'The second project',
+                            'status' => 1,
+                            'parent' => [
+                                'id' => 5
+                            ],
+                            'created_on'  => "2013-05-16T18:40:18Z",
+                            'updated_on' => "2013-05-16T18:40:18Z",
+                            'children' => []
+                        ],
+                    ],
+                ]
             ],
         ];
 
@@ -221,7 +234,7 @@ class WizardSpec extends ObjectBehavior
         $this->shouldThrow('\RuntimeException')->during('getIssuesForProject', [1]);
     }
 
-    function it_returns_true_if_a_task_is_found(Client $redmine, Issue $issue)
+    function it_returns_issue_details_if_issues_are_found(Client $redmine, Issue $issue)
     {
         $redmine->api('issue')->willReturn($issue);
 
@@ -257,23 +270,25 @@ class WizardSpec extends ObjectBehavior
             'limit' => 1024,
         ])->shouldBeCalled();
         $this->getIssuesForProject(1)->shouldReturn([
-            [
-                'id' => 1,
-                'project' => [
+            'issues' => [
+                [
                     'id' => 1,
-                    'name' => 'Test',
-                ],
-                'tracker' => [
-                    'id' => 1,
-                    'name' => 'Bug',
-                ],
-                'status' => [
-                    'id' => 1,
-                    'name' => 'New',
-                ],
-                'priority' => [
-                    'id' => 4,
-                    'name' => 'Normal',
+                    'project' => [
+                        'id' => 1,
+                        'name' => 'Test',
+                    ],
+                    'tracker' => [
+                        'id' => 1,
+                        'name' => 'Bug',
+                    ],
+                    'status' => [
+                        'id' => 1,
+                        'name' => 'New',
+                    ],
+                    'priority' => [
+                        'id' => 4,
+                        'name' => 'Normal',
+                    ],
                 ],
             ],
         ]);
@@ -531,19 +546,16 @@ class WizardSpec extends ObjectBehavior
         )->shouldReturn($expectedTransactions);
     }
 
-    /**
-     * I don't understand why this test makes the maniphest.querystatuses expectation
-     * from the constructor fail, even if it contains but a single print statement.
-     */
-    function xit_attaches_uploaded_files_to_the_task_description()
+    function it_attaches_uploaded_files_to_the_task_description()
     {
-        $mock = PHPMockery::mock(__NAMESPACE__, 'file_get_contents')->andReturn('blablabla');
+        $mock = PHPMockery::mock('\Ttf\Remaim\Traits', 'file_get_contents')->andReturn('blablabla');
         $details = [
             'issue' => [
                 'subject' => 'Test Subject',
                 'attachments' => [
                     [
                         'filename' => 'Testfile.png',
+                        'content_url' => 'https://redmine.host/files/Testfile.png',
                     ]
                 ],
                 'status' => [
@@ -574,7 +586,9 @@ class WizardSpec extends ObjectBehavior
                 'phid' => 'PHID-file-xyz',
             ])
         ->once()
-        ->andReturn('F123456');
+        ->andReturn([
+            'objectName' => 'F123456'
+        ]);
 
         $expectedTransactions = [
             [
@@ -608,14 +622,11 @@ class WizardSpec extends ObjectBehavior
             $details['issue'],
             'A random description of a task',
             $policies,
-            $task
+            []
         )->shouldReturn($expectedTransactions);
     }
 
-    /**
-     * Same problem as above
-     */
-    function xit_creates_a_new_task_if_no_match_is_found_in_phabricator()
+    function it_creates_a_new_task_if_no_match_is_found_in_phabricator()
     {
         $issue = [
             'subject' => 'Test Subject',
@@ -642,6 +653,11 @@ class WizardSpec extends ObjectBehavior
             ],
         ];
 
+        $owner = [
+            'realName' => 'Johnny 5',
+            'phid' => 'PHID-owner',
+        ];
+
         $this->conduit
         ->shouldReceive('callMethodSynchronous')
         ->with(
@@ -653,11 +669,48 @@ class WizardSpec extends ObjectBehavior
 
         $this->createManiphestTask(
             [],
-            $details,
+            $issue,
             $description,
-            'PHID-owner',
+            $owner,
             'PHID-project',
             $policies
         )->shouldReturn($result);
+    }
+
+    function it_paginates_trough_all_the_results_if_there_are_more_than_100()
+    {
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with(
+            'project.search',
+            [
+                'queryKey' => 'all',
+                'after' => 0,
+            ]
+        )
+        ->once()
+        ->andReturn([
+            'data' => ['a', 'b'],
+            'after' => 23
+        ]);
+
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with(
+            'project.search',
+            [
+                'queryKey' => 'all',
+                'after' => 23,
+            ]
+        )
+        ->once()
+        ->andReturn([
+            'data' => ['c', 'd'],
+            'after' => null
+        ]);
+
+        $this->retrieveAllPhabricatorProjects(0)->shouldReturn([
+            'a', 'b', 'c', 'd'
+        ]);
     }
 }

@@ -1,7 +1,14 @@
 redmine:
-    host: https://redmine.1024.lu
-    user: 
-    password: 
+  host: https://redmine.1024.lu
+  user:
+  password:
 phabricator:
-    host: https://cator.1024.lu
-    token: 
+  host: https://cator.1024.lu
+  token:
+priority_map:
+  Immediate: 100
+  Urgent: 90
+  High: 80
+  Normal: 50
+  Low: 25
+  Wishlist: 10

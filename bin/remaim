@@ -18,7 +18,7 @@
 
 // There is a composer package for libphutil, but it's unofficial and not 100% compatible:
 // https://packagist.org/packages/mtrunkat/libphutil
-require_once 'vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
 
 use Ttf\Remaim\Wizard;
@@ -30,8 +30,7 @@ use Symfony\Component\Yaml\Exception\ParseException;
 
 try {
     $yaml = new Parser();
-    $config = $yaml->parse(file_get_contents('remaim.yml'));
-
+    $config = $yaml->parse(file_get_contents(__DIR__ . '/../remaim.yml'));
 } catch (ParseException $e) {
     printf("Unable to parse the YAML string: %s", $e->getMessage());
 }

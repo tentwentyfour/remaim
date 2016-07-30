@@ -82,10 +82,7 @@ trait Transactions
             return [];
         }
 
-        $subscribers = $this->watchersToSubscribers(
-            $this->conduit,
-            $issue['watchers']
-        );
+        $subscribers = $this->watchersToSubscribers($issue['watchers']);
 
         if (!empty($subscribers)) {
             $transactions = [
@@ -94,6 +91,25 @@ trait Transactions
             ];
             return $transactions;
         }
+    }
+
+    /**
+     * Retrieve Phabricator PHIDs for users in redmine watcher list
+     *
+     * @param  array $redmine_watchers List of users watching a given Redmine issue
+     *
+     * @return array                   List of phabricator user PHIDs
+     */
+    public function watchersToSubscribers($redmine_watchers)
+    {
+        $watchers = [];
+        foreach ($redmine_watchers as $watcher) {
+            if (!isset($watcher['name']) || empty($watcher['name'])) {
+                continue;
+            }
+            $watchers[] = $watcher['name'];
+        }
+        return $this->getPhabricatorUserPhid($watchers);
     }
 
     /**
@@ -114,15 +130,23 @@ trait Transactions
 
         $transactions = [];
         foreach ($issue['journals'] as $journal) {
-            var_dump($journal); exit;
             if (!isset($journal['notes']) || empty($journal['notes'])) {
                 continue;
             }
+            $timestamp = strtotime($journal['created_on']);
             $comment = sprintf(
-                "%s originally wrote:\n> %s",
+                "On %s, %s wrote:\n> %s",
+                date('Y-m-d H:i:s', $timestamp),
                 $journal['user']['name'],
                 $journal['notes']
             );
+
+            if (!empty($journal['details'])) {
+                $comment .= ' and ' . implode(
+                    PHP_EOL,
+                    $this->recountStory($journal['details'])
+                );
+            }
 
             $transactions[] = [
                 'type' => 'comment',
@@ -132,6 +156,45 @@ trait Transactions
         return $transactions;
     }
 
+    /**
+     * Recreate issue history based on detailed journal actions
+     *
+     * @param  array $details   Detailed actions taken
+     *
+     * @return array            Parsed, verbose action story
+     */
+    public function recountStory($details)
+    {
+        return array_map(function ($action) {
+            switch ($action['name']) {
+                case 'status_id':
+                    return 'Changed task status';
+                    break;
+                case 'done_ratio':
+                    return sprintf(
+                        'Changed done from %d%% to %d%%',
+                        $action['old_value'],
+                        $action['new_value']
+                    );
+                    break;
+                default:
+                    return sprintf(
+                        'Changed a custom field value from %s to %s',
+                        $action['old_value'],
+                        $action['new_value']
+                    );
+                    break;
+            }
+        }, $details);
+    }
+
+    /**
+     * Create status transaction
+     *
+     * @param  array $issue Redmine issue detail
+     *
+     * @return array        Status transaction
+     */
     public function createStatusTransaction($issue)
     {
         $status = $issue['status']['name'];
@@ -172,6 +235,9 @@ trait Transactions
      */
     public function createDescriptionTransaction($issue, $policies, $task = null)
     {
+        // if (!empty($issue['attachments'])) {
+            // var_dump($issue, $policies); exit;
+        // }
         $description = isset($issue['description']) ? $issue['description'] : '';
         $file_ids = $this->uploadFiles($issue, $policies['view']);
 

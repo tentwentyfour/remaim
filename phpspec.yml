@@ -1,5 +1,5 @@
 extensions:
-  HenrikBjorn\PhpSpecCodeCoverage\CodeCoverageExtension:
+  PhpSpecCodeCoverage\CodeCoverageExtension:
     whitelist:
       - lib
     format:
