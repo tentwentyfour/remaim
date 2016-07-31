@@ -1,6 +1,8 @@
-## ReMaIm – Redmine to Maniphest Importer
+ReMaIm – Redmine to Maniphest Importer
+======================================
 
-### Dependencies
+Dependencies
+------------
 
 You will need to have a copy of Phabricator's libphutil in your path.
 We assume that you have installed arcanist via your package manager and that
@@ -8,13 +10,15 @@ libphutil sits in /usr/share/libphutil.
 
 If such is not the case, you will have to adapt the path inside lib/Wizard.php
 
-### Installation
+Installation
+------------
 
 ```bash
 composer install
 ```
 
-### Usage
+Usage
+-----
 
 **Note**: All tasks and comments will be created by the user whose Phabricator
 API key you will be using.
@@ -30,14 +34,21 @@ phabricator credentials
 2. php bin/remaim (or ./vendor/bin/remaim)
 
 
-### Running tests
+Running tests
+-------------
 
 ```bash
 ./vendor/bin/phpspec run
 ```
 
+Contributing
+------------
 
-### FAQ
+Please see CONTRIBUTING.md for information on how you may contribute to this project.
+
+
+FAQ
+---
 
 Q: But, but, it's not entirely done yet, why are you releasing this half-done tool to the public?
 A: "Release early, release often" We believe the tool is in a state where many people can profit from using it and can adjust or extend its behavior with moderate effort. We've been using it to migrate over 4000 issues.

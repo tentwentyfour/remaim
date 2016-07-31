@@ -20,3 +20,9 @@ Code style / Formatting
 
 - All new classes must carry the standard copyright notice docblock
 - All code in the `src` folder must follow the PSR-2 standard
+
+
+So what remains to be done?
+---------------------------
+
+A shitload of things! Take a look at the issue section on github to see what is most urgent or popular.
