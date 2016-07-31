@@ -1,6 +1,8 @@
 ReMaIm – Redmine to Maniphest Importer
 ======================================
 
+[![Build Status](https://travis-ci.org/tentwentyfour/remaim.svg?branch=master)](https://travis-ci.org/tentwentyfour/remaim)
+
 Dependencies
 ------------
 
