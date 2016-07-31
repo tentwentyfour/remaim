@@ -5,9 +5,9 @@ dist: trusty
 
 before_install:
   - curl "https://wikitech.wikimedia.org/w/index.php?title=APT_repository/Key&action=raw" | sudo apt-key add -
-  - echo "deb http://apt.wikimedia.org/wikimedia trusty-wikimedia main" | sudo tee -a /etc/apt/sources.list
+  - echo "deb http://apt.wikimedia.org/wikimedia trusty-wikimedia main thirdparty non-free universe" | sudo tee -a /etc/apt/sources.list
   - sudo apt-get -qq update
-  - sudo apt-get install -y arcanist
+  - sudo apt-get install -y libphutil
 
 cache:
   directories:
