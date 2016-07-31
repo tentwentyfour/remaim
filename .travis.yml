@@ -18,4 +18,4 @@ install:
   - if [ "$DEPENDENCIES" == "low" ]; then composer update --prefer-lowest; fi;
 
 script:
-   - bin/phpspec run --format=pretty
+   - vendor/bin/phpspec run --format=pretty
