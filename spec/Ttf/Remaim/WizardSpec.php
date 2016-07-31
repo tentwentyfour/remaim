@@ -676,7 +676,7 @@ class WizardSpec extends ObjectBehavior
             ],
             [
                 'type' => 'comment',
-                'value' => "On Mon, 27 Apr 2015 17:55:47 +0200, Albert Einstein wrote:\n > A comment //someone// made with `code`\nand\nChanged done from 90% to 100%"
+                'value' => "On Monday, April 27th 2015 17:55:47, Albert Einstein wrote:\n > A comment //someone// made with `code`\nand\nChanged done from 90% to 100%"
             ],
             [
                 'type' => 'view',

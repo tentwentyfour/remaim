@@ -142,7 +142,7 @@ trait Transactions
             $timestamp = strtotime($journal['created_on']);
             $comment = sprintf(
                 "On %s, %s wrote:\n %s",
-                date('r', $timestamp),
+                date('l, F jS Y H:i:s', $timestamp),
                 $journal['user']['name'],
                 $this->convertToQuote(
                     $this->convertFromRedmine($journal['notes'])
