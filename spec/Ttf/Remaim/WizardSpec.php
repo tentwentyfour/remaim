@@ -622,6 +622,169 @@ class WizardSpec extends ObjectBehavior
         )->shouldReturn($expectedTransactions);
     }
 
+    function it_handles_redmine_journals_and_transforms_them_into_comments()
+    {
+        $issue = [
+            'subject' => 'Test Subject',
+            'attachments' => [],
+            'status' => [
+                'id' => 1,
+                'name' => 'Resolved',
+            ],
+            'description' => 'A random description of a task',
+            'journals' => [
+                [
+                    'id' => 6535,
+                    'user' => [
+                        'id' => 24,
+                        'name' => 'Albert Einstein',
+                    ],
+                    'notes' => 'A comment _someone_ made with @code@',
+                    'created_on' => '2015-04-27T15:55:47Z',
+                    'details' => [
+                        [
+                            'property' => 'attr',
+                            'name' => 'done_ratio',
+                            'old_value' => 90,
+                            'new_value' => 100
+                        ]
+                    ]
+                ]
+            ]
+        ];
+        $policies = [
+            'view' => 'PHID-foobar',
+            'edit' => 'PHID-barbaz',
+        ];
+
+        $expectedTransactions = [
+            [
+                'type' => 'projects.set',
+                'value' => ['PHID-random'],
+            ],
+            [
+                'type' => 'title',
+                'value' => 'Test Subject',
+            ],
+            [
+                'type' => 'description',
+                'value' => "A random description of a task",
+            ],
+            [
+                'type' => 'status',
+                'value' => 'resolved',
+            ],
+            [
+                'type' => 'comment',
+                'value' => "On Mon, 27 Apr 2015 17:55:47 +0200, Albert Einstein wrote:\n > A comment //someone// made with `code`\nand\nChanged done from 90% to 100%"
+            ],
+            [
+                'type' => 'view',
+                'value' => 'PHID-foobar',
+            ],
+            [
+                'type' => 'edit',
+                'value' => 'PHID-barbaz',
+            ],
+        ];
+
+        $this->assembleTransactionsFor(
+            'PHID-random',
+            $issue,
+            $policies,
+            []
+        )->shouldReturn($expectedTransactions);
+    }
+
+    function it_transforms_watchers_into_subscribers()
+    {
+        $issue = [
+            'subject' => 'Test Subject',
+            'attachments' => [],
+            'status' => [
+                'id' => 1,
+                'name' => 'Resolved',
+            ],
+            'description' => 'A random description of a task',
+            'watchers' => [
+                [
+                    'id' => 1,
+                    'name' => 'Tom Sawyer',
+                ],
+                [
+                    'id' => 5,
+                    'name' => 'Miles Davis',
+                ]
+            ]
+        ];
+
+        $policies = [
+            'view' => 'PHID-foobar',
+            'edit' => 'PHID-barbaz',
+        ];
+
+        $expectedTransactions = [
+            [
+                'type' => 'projects.set',
+                'value' => ['PHID-random'],
+            ],
+            [
+                'type' => 'title',
+                'value' => 'Test Subject',
+            ],
+            [
+                'type' => 'description',
+                'value' => "A random description of a task",
+            ],
+            [
+                'type' => 'status',
+                'value' => 'resolved',
+            ],
+            [
+                'type' => 'subscribers.set',
+                'value' => [
+                    'PHID-tom',
+                    'PHID-miles',
+                ],
+            ],
+            [
+                'type' => 'view',
+                'value' => 'PHID-foobar',
+            ],
+            [
+                'type' => 'edit',
+                'value' => 'PHID-barbaz',
+            ],
+        ];
+
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('user.query', [
+            'realnames' => [
+                'Tom Sawyer',
+                'Miles Davis',
+            ],
+        ])
+        ->once()
+        ->andReturn([
+            [
+                'realName' => 'Tom Sawyer',
+                'phid' => 'PHID-tom',
+            ],
+            [
+                'realName' => 'Miles Davis',
+                'phid' => 'PHID-miles',
+            ]
+        ]);
+
+        $this->assembleTransactionsFor(
+            'PHID-random',
+            $issue,
+            $policies,
+            []
+        )->shouldReturn($expectedTransactions);
+    }
+
     function it_creates_a_new_task_if_no_match_is_found_in_phabricator()
     {
         $issue = [

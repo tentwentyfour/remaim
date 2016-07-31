@@ -76,6 +76,13 @@ trait Transactions
         return $transactions;
     }
 
+    /**
+     * Create a transaction for subscribers
+     *
+     * @param  array $issue Issue details
+     *
+     * @return array        Transaction
+     */
     public function createSubscriberTransaction($issue)
     {
         if (!isset($issue['watchers']) || empty($issue['watchers'])) {
@@ -85,11 +92,10 @@ trait Transactions
         $subscribers = $this->watchersToSubscribers($issue['watchers']);
 
         if (!empty($subscribers)) {
-            $transactions = [
+            return [
                 'type' => 'subscribers.set',
                 'value' => $subscribers,
             ];
-            return $transactions;
         }
     }
 
@@ -144,7 +150,7 @@ trait Transactions
             );
 
             if (!empty($journal['details'])) {
-                $comment .= ' and ' . implode(
+                $comment .= PHP_EOL . 'and' . PHP_EOL . implode(
                     PHP_EOL,
                     $this->recountStory($journal['details'])
                 );

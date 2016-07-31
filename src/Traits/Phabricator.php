@@ -180,7 +180,10 @@ trait Phabricator
             });
 
             if (!empty($queried_users)) {
-                $this->phabricator_users = array_merge($this->phabricator_users, $queried_users);
+                $this->phabricator_users = array_merge(
+                    $this->phabricator_users,
+                    $queried_users
+                );
             }
         }
 
