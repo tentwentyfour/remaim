@@ -1,7 +1,7 @@
 extensions:
   PhpSpecCodeCoverage\CodeCoverageExtension:
     whitelist:
-      - lib
+      - src
     format:
       - text
       - clover

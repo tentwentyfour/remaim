@@ -135,10 +135,12 @@ trait Transactions
             }
             $timestamp = strtotime($journal['created_on']);
             $comment = sprintf(
-                "On %s, %s wrote:\n> %s",
-                date('Y-m-d H:i:s', $timestamp),
+                "On %s, %s wrote:\n %s",
+                date('r', $timestamp),
                 $journal['user']['name'],
-                $journal['notes']
+                $this->convertToQuote(
+                    $this->convertFromRedmine($journal['notes'])
+                )
             );
 
             if (!empty($journal['details'])) {
@@ -154,6 +156,32 @@ trait Transactions
             ];
         }
         return $transactions;
+    }
+
+    /**
+     * Tries to detect whether the content in Redmine is using textile or markdown
+     * and then converts some markup (if textile) or just passes it on.
+     *
+     * This is a really naive and inefficient approach which could be improved.
+     *
+     * @todo Support external links
+     *
+     * @param  String $text Input text
+     *
+     * @return String Converted text
+     */
+    public function convertFromRedmine($text)
+    {
+        return str_replace(
+            ["\r", 'h1.', 'h2.', 'h3.', 'h4.', '<pre>', '</pre>', '@', '*', '_'],
+            ['', '#', '##', '###', '####', '```', '```', '`', '**', '//'],
+            trim($text)
+        );
+    }
+
+    public function convertToQuote($text)
+    {
+        return sprintf('> %s', preg_replace("/[\n\r]/", "\n> ", $text));
     }
 
     /**
@@ -235,9 +263,6 @@ trait Transactions
      */
     public function createDescriptionTransaction($issue, $policies, $task = null)
     {
-        // if (!empty($issue['attachments'])) {
-            // var_dump($issue, $policies); exit;
-        // }
         $description = isset($issue['description']) ? $issue['description'] : '';
         $file_ids = $this->uploadFiles($issue, $policies['view']);
 

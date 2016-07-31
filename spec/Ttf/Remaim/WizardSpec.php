@@ -427,7 +427,6 @@ class WizardSpec extends ObjectBehavior
         $this->assembleTransactionsFor(
             'PHID-random',
             $details['issue'],
-            'A random description of a task',
             $policies
         )->shouldReturn($expectedTransactions);
     }
@@ -485,7 +484,6 @@ class WizardSpec extends ObjectBehavior
         $this->assembleTransactionsFor(
             'PHID-random',
             $details['issue'],
-            'A random description of a task',
             $policies,
             $task
         )->shouldReturn($expectedTransactions);
@@ -540,7 +538,6 @@ class WizardSpec extends ObjectBehavior
         $this->assembleTransactionsFor(
             'PHID-random',
             $details['issue'],
-            'A random description of a task',
             $policies,
             $task
         )->shouldReturn($expectedTransactions);
@@ -620,7 +617,6 @@ class WizardSpec extends ObjectBehavior
         $this->assembleTransactionsFor(
             'PHID-random',
             $details['issue'],
-            'A random description of a task',
             $policies,
             []
         )->shouldReturn($expectedTransactions);
@@ -637,7 +633,6 @@ class WizardSpec extends ObjectBehavior
             ],
             'description' => 'A random description of a task',
         ];
-        $description = $issue['description'];
         $policies = [
             'view' => 'PHID-foobar',
             'edit' => 'PHID-barbaz',
@@ -660,6 +655,15 @@ class WizardSpec extends ObjectBehavior
 
         $this->conduit
         ->shouldReceive('callMethodSynchronous')
+        ->with('maniphest.query', [
+            'projectPHIDs' => ['PHID-project'],
+            'fullText' => 'A random description of a task'
+        ])
+        ->once()
+        ->andReturn([]);
+
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
         ->with(
             'maniphest.edit',
             \Mockery::type('array')
@@ -668,13 +672,92 @@ class WizardSpec extends ObjectBehavior
         ->andReturn($result);
 
         $this->createManiphestTask(
-            [],
             $issue,
-            $description,
             $owner,
             'PHID-project',
             $policies
         )->shouldReturn($result);
+    }
+
+    function it_asks_which_task_to_update_if_more_than_one_existing_task_is_found()
+    {
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('0');
+        $issue = [
+            'subject' => 'Test Subject',
+            'attachments' => [],
+            'status' => [
+                'id' => 1,
+                'name' => 'Resolved',
+            ],
+            'description' => 'A random description of a task',
+        ];
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('maniphest.query', [
+            'projectPHIDs' => ['PHID-project'],
+            'fullText' => 'A random description of a task'
+        ])
+        ->once()
+        ->andReturn([
+            [
+                'id' => 1,
+                'statusName' => 'Resolved',
+                'title' => 'Test Subject',
+                'description' => 'A random description of a task',
+            ],
+            [
+                'id' => 2,
+                'statusName' => 'Open',
+                'title' => 'Similar Task Subject',
+                'description' => 'A random description of a task',
+            ],
+        ]);
+
+        ob_start();
+        $this->findExistingTask($issue, 'PHID-project')->shouldReturn([
+            'id' => 1,
+            'statusName' => 'Resolved',
+            'title' => 'Test Subject',
+            'description' => 'A random description of a task',
+        ]);
+        $prompt = ob_get_clean();
+        expect($prompt)->toBe(
+            "Oops, I found more than one already existing task in phabricator.\nPlease indicate which one to update.\n[0] =>\t[ID]: T1\n\t[Status]: Resolved\n\t[Name]: Test Subject\n\t[Description]: A random description of a task\n[1] =>\t[ID]: T2\n\t[Status]: Open\n\t[Name]: Similar Task Subject\n\t[Description]: A random description of a task\nEnter the [index] of the task you would like to use: \n> "
+        );
+    }
+
+    function it_updates_the_task_if_only_one_is_found_in_phabricator()
+    {
+        $issue = [
+            'subject' => 'Test Subject',
+            'attachments' => [],
+            'status' => [
+                'id' => 1,
+                'name' => 'Resolved',
+            ],
+            'description' => 'A random description of a task',
+        ];
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('maniphest.query', [
+            'projectPHIDs' => ['PHID-project'],
+            'fullText' => 'A random description of a task'
+        ])
+        ->once()
+        ->andReturn([
+            [
+                'id' => 1,
+                'statusName' => 'Resolved',
+                'title' => 'Test Subject',
+                'description' => 'A random description of a task',
+            ]
+        ]);
+        $this->findExistingTask($issue, 'PHID-project')->shouldReturn([
+            'id' => 1,
+            'statusName' => 'Resolved',
+            'title' => 'Test Subject',
+            'description' => 'A random description of a task',
+        ]);
     }
 
     function it_paginates_trough_all_the_results_if_there_are_more_than_100()
@@ -691,7 +774,9 @@ class WizardSpec extends ObjectBehavior
         ->once()
         ->andReturn([
             'data' => ['a', 'b'],
-            'after' => 23
+            'cursor' => [
+                'after' => 23
+            ]
         ]);
 
         $this->conduit
@@ -706,7 +791,9 @@ class WizardSpec extends ObjectBehavior
         ->once()
         ->andReturn([
             'data' => ['c', 'd'],
-            'after' => null
+            'cursor' => [
+                'after' => null
+            ]
         ]);
 
         $this->retrieveAllPhabricatorProjects(0)->shouldReturn([

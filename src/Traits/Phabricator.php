@@ -74,10 +74,10 @@ trait Phabricator
                 'after' => $after,
             ]
         );
-        if ($result['after'] != null) {
+        if ($result['cursor']['after'] != null) {
             $result['data'] = array_merge(
                 $result['data'],
-                $this->retrieveAllPhabricatorProjects($result['after'])
+                $this->retrieveAllPhabricatorProjects($result['cursor']['after'])
             );
         }
         return $result['data'];
@@ -207,5 +207,58 @@ trait Phabricator
               'transactions' => $transactions,
             ]
         );
+    }
+
+    /**
+     * Finds tasks that have already been imported to phabricator based on their description.
+     *
+     * @param  array $issue Redmine issue description
+     * @return array        [description]
+     */
+    public function findExistingTask($issue, $project_phid)
+    {
+        $tasks = [];
+        if (!empty($issue['description'])) {
+            $issue['description'] = $this->convertFromRedmine($issue['description']);
+            $tasks = $this->conduit->callMethodSynchronous(
+                'maniphest.query',
+                [
+                    'projectPHIDs' => [$project_phid],
+                    'fullText' => $issue['description'],
+                ]
+            );
+        }
+
+        $num_found = sizeof($tasks);
+        if (!empty($tasks) && $num_found > 1) {
+            print(
+                'Oops, I found more than one already existing task in phabricator.'
+                . PHP_EOL
+                . 'Please indicate which one to update.'
+                . PHP_EOL
+            );
+            $i = 0;
+            foreach ($tasks as $task) {
+                printf(
+                    "[%d] =>\t[ID]: T%d\n\t[Status]: %s\n\t[Name]: %s\n\t[Description]: %s\n",
+                    $i++,
+                    $task['id'],
+                    $task['statusName'],
+                    $task['title'],
+                    $task['description']
+                );
+            }
+            $index = $this->selectIndexFromList(
+                'Enter the [index] of the task you would like to use',
+                $i - 1
+            );
+            $keys = array_keys($tasks);
+            $key = $keys[$index];
+            return $tasks[$key];
+        } elseif (sizeof($tasks) === 1) {
+            return array_pop($tasks);
+        }
+        // implicit third case: ticket does not yet exist in phabricator
+        return [];
     }
 }

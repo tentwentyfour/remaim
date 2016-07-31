@@ -18,6 +18,7 @@ composer install
 
 **Note**: All tasks and comments will be created by the user whose Phabricator
 API key you will be using.
+We recommend to create a bot account that has access to all projects on your Phabricator instance.
 
 The tool currently also presumes that you have created user accounts for all your collaborators in Phabricator since the Conduit API does not allow to create new accounts.
 
@@ -34,3 +35,11 @@ phabricator credentials
 ```bash
 ./vendor/bin/phpspec run
 ```
+
+
+### FAQ
+
+Q: But, but, it's not entirely done yet, why are you releasing this half-done tool to the public?
+A: "Release early, release often" We believe the tool is in a state where many people can profit from using it and can adjust or extend its behavior with moderate effort. We've been using it to migrate over 4000 issues.
+
+Plus, finishing ALL the things we would like to see would really take a long time, so we're hoping the community will pick this up, improve on it and send us plenty of PRs ;)

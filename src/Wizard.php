@@ -79,13 +79,15 @@ class Wizard
                 $redmine_project
             );
 
+            $policies = $this->definePolicies($this->lookupGroupProjects());
             $this->presentSummary(
                 $redmine_project,
                 $phabricator_project,
-                $tasks
+                $tasks,
+                $policies
             );
 
-            $policies = $this->definePolicies($this->lookupGroupProjects());
+            print('Working...' . PHP_EOL);
             $results = $this->migrateIssues(
                 $tasks['issues'],
                 $phabricator_project,
@@ -98,7 +100,11 @@ class Wizard
         } catch (\Exception $e) {
             die(
                 sprintf(
-                    "Arrrgh… we're really sorry but something went a little haywire here.\nUse the following information to help us fix it? Prettyl please?\nException message: %s\nException trace: %s\n\n",
+                    'Arrrgh… we\'re really sorry but something went a little haywire here.' . PHP_EOL
+                    . 'Use the following information to help us fix it? Pretty please?' . PHP_EOL . PHP_EOL
+                    . 'Exception message: %s' . PHP_EOL
+                    . 'Exception trace:' . PHP_EOL
+                    . '%s' . PHP_EOL,
                     $e->getMessage(),
                     $e->getTraceAsString()
                 )
@@ -115,26 +121,34 @@ class Wizard
      *
      * @return [type]                      [description]
      */
-    public function presentSummary($redmine_project, $phabricator_project, $tasks)
-    {
+    public function presentSummary(
+        $redmine_project,
+        $phabricator_project,
+        $tasks,
+        $policies
+    ) {
         $project_detail = $this->redmine->project->show($redmine_project);
 
         printf(
-            "\n\n####################\n# Pre-flight check #\n####################\nRedmine project named \"%s\" with ID %s.\n",
+            PHP_EOL . PHP_EOL .
+            '####################' . PHP_EOL .
+            '# Pre-flight check #' . PHP_EOL .
+            '####################' . PHP_EOL .
+            'Redmine project named "%s" with ID %s.' . PHP_EOL .
+            'Target phabricator project named "%s" with ID %s.' . PHP_EOL .
+            'View policy: %s, Edit policy: %s' . PHP_EOL,
             $project_detail['project']['name'],
-            $redmine_project
-        );
-
-        printf(
-            'Target phabricator project named "%s" with ID %s.' . "\n",
+            $redmine_project,
             $phabricator_project['name'],
-            $phabricator_project['id']
+            $phabricator_project['id'],
+            $policies['view'],
+            $policies['edit']
         );
 
         $answer = $this->prompt(
             sprintf(
-                '%d tickets to be migrated! OK to continue? [y/N]' . "\n> ",
-                $tasks['total_count']
+                '%d tickets to be migrated! OK to continue? [y/N]',
+                $tasks['total_count'][0]
             )
         );
 
@@ -154,10 +168,12 @@ class Wizard
      */
     public function selectOrCreatePhabricatorProject($project_id)
     {
-        $this->actOnChoice(
+        return $this->actOnChoice(
             $this->prompt(
-                'Please enter the id/slug of the project in Phabricator if you know it.' . PHP_EOL
-                . 'Press [Enter] to see a list of available projects in Phabricator or' . PHP_EOL
+                'Please enter the id or slug of the project in Phabricator if you know it.'
+                . PHP_EOL
+                . 'Press [Enter] to see a list of available projects in Phabricator or'
+                . PHP_EOL
                 . 'Enter [0] to create a new project from the Redmine project\'s details'
             ),
             $project_id
@@ -178,11 +194,11 @@ class Wizard
             case '':
                 $projects = $this->getAllPhabricatorProjects();
                 ksort($projects);
-                $project_id = $this->selectProject($projects);
+                $project_id = (int) $this->selectProject($projects, true);
 
-                if ('0' === $project) {
-                    $this->selectOrCreatePhabricatorProject($redmine_project);
-                } elseif (array_key_exists($project, $projects)) {
+                if ('' === $project_id) {
+                    return $this->selectOrCreatePhabricatorProject($redmine_project);
+                } elseif (array_key_exists($project_id, $projects['projects'])) {
                     $query = [
                         'ids' => [$project_id]
                     ];
@@ -250,6 +266,12 @@ class Wizard
      */
     public function definePolicies($groups)
     {
+        print(
+            PHP_EOL
+            . 'Let\'s set some policies on the new tasks, shall we?' . PHP_EOL
+            . 'Here are the group projects that I found:'
+            . PHP_EOL . PHP_EOL
+        );
         $i = 0;
         foreach ($groups['data'] as $group) {
             printf(
@@ -260,7 +282,7 @@ class Wizard
             );
         }
         $index = $this->selectIndexFromList(
-            'Select a group to get view and edit permissions.',
+            'Select a group to get view and edit permissions',
             $i
         );
         $groupproject = $groups['data'][$index];
@@ -324,10 +346,11 @@ class Wizard
      * @param  array $projects List of projects and total count retrieved
      * @return String          User input
      */
-    private function selectProject($projects)
+    private function selectProject($projects, $can_return = false)
     {
         printf(
-            '%d total projects retrieved from your redmine instance.' . PHP_EOL . PHP_EOL,
+            '%d total projects retrieved.'
+            . PHP_EOL . PHP_EOL,
             $projects['total_count']
         );
         foreach ($projects['projects'] as $toplevel) {
@@ -335,15 +358,18 @@ class Wizard
         }
         print(PHP_EOL);
 
+        $message = 'Please select (type) a project ID';
+        $message .= ($can_return) ? ' or leave empty to go back to the previous step' : '';
+
         return $this->selectIndexFromList(
-            'Please select (type) a project ID or leave empty to go back',
+            $message,
             $projects['highest'],
             $projects['lowest']
         );
     }
 
     /**
-     * Generic user prompt
+     * Prompt the user for a response
      *
      * @param  String $question Message or question to display
      *
@@ -413,25 +439,9 @@ class Wizard
             );
 
             $owner = $this->grabOwnerPhid($details['issue']);
-            $tasks = [];
-            $description = $details['issue']['description'];
-
-            if (!empty($description)) {
-                $details['issue']['description'] = str_replace("\r", '', trim($description));
-                $api_parameters = [
-                    'projectPHIDs' => [$ph_project['phid']],
-                    'fullText' => $details['issue']['description'],
-                ];
-                $tasks = $this->conduit->callMethodSynchronous(
-                    'maniphest.query',
-                    $api_parameters
-                );
-            }
 
             return $this->createManiphestTask(
-                $tasks,
                 $details['issue'],
-                $description,
                 $owner,
                 $ph_project['phid'],
                 $policies
@@ -439,43 +449,29 @@ class Wizard
         }, $issues);
     }
 
+    /**
+     * Looks for a pre-existing task and creates an array of transactions based
+     * on the redmine issue. Then calls createOrUpdatePhabTicket() to create
+     * or update the task.
+     *
+     * @param  array  $issue        Issue details
+     * @param  string $owner        PHID identifying a potential task assignee
+     * @param  string $project_phid PHID identifying a project in Phabricator
+     * @param  array  $policies     List of policies to apply to the task
+     *
+     * @return array                Details of maniphest.edit operation
+     */
     public function createManiphestTask(
-        $tasks,
         $issue,
-        $description,
         $owner,
         $project_phid,
         $policies
     ) {
-        $task = [];
-        $num_found = sizeof($tasks);
-        if (!empty($tasks) && $num_found > 1) {
-            print("Oops, I found more than one already existing task in phabricator.\nPlease indicate which one to update. \n(You might want to delete the duplicate from your phabricator CLI later.\n");
-            $i = 0;
-            foreach ($tasks as $task) {
-                printf(
-                    "[%d] =>\t[ID]: T%d \n\t[Name]: %s \n\t[Descriptions]: %s\n",
-                    $i++,
-                    $task['id'],
-                    $task['title'],
-                    $task['description']
-                );
-            }
-            $index = $this->selectIndexFromList(
-                'Enter the [index] of the task you would like to use.',
-                $i - 1
-            );
-            $keys = array_keys($tasks);
-            $key = $keys[$index];
-            $task = $tasks[$key];
-        } elseif (sizeof($tasks) === 1) {
-            $task = array_pop($tasks);
-        } // implicit third case: ticket does not yet exist in phabricator
+        $task = $this->findExistingTask($issue, $project_phid);
 
         $transactions = $this->assembleTransactionsFor(
             $project_phid,
             $issue,
-            $description,
             $policies,
             $task,
             $owner
@@ -484,23 +480,21 @@ class Wizard
         return $this->createOrUpdatePhabTicket($transactions, $task);
     }
 
-
     /**
      * Assembles a collection of transactions to be applied to each
      * issue that will be migrated.
      *
-     * @param  [type]  $project_phid     [description]
-     * @param  [type]  $details          [description]
-     * @param  [type]  $task_description [description]
-     * @param  [type]  $policies         [description]
-     * @param  array   $task             [description]
-     * @param  boolean $assignee         [description]
-     * @return [type]                    [description]
+     * @param  string  $project_phid     Phabricator Project PHID
+     * @param  array   $issue            Issue details
+     * @param  array   $policies         View and edit policies
+     * @param  array   $task             Maniphest task, if one already exists
+     * @param  boolean $assignee         Future owner of the task
+     *
+     * @return array                    Transaction array
      */
     public function assembleTransactionsFor(
         $project_phid,
         $issue,
-        $task_description,
         $policies,
         $task = [],
         $assignee = false
@@ -520,8 +514,8 @@ class Wizard
         $transactions[] = $this->createSubscriberTransaction($issue);
         $transactions[] = $this->createPriorityTransaction($issue);
 
-        if ($assignee) {
-            $transactions[] = $this->createOwnerTransaction($assignee['phid']);
+        if ($assignee && !empty($assignee)) {
+            $transactions[] = $this->createOwnerTransaction($assignee);
         }
 
         $transactions = array_merge(
@@ -545,6 +539,8 @@ class Wizard
      * Grab the PHID for a user that will become the Owner of the
      * task.
      *
+     * @todo Add support for redmine groups
+     *
      * @param  array $issue Issue detail from redmine
      *
      * @return String       Owner PHID
@@ -555,7 +551,10 @@ class Wizard
             return false;
         }
 
-        $phab_ids = $this->getPhabricatorUserPhid([$issue['assigned_to']['name']]);
-        return $phab_ids[0];
+        $phab_ids = $this->getPhabricatorUserPhid(
+            [$issue['assigned_to']['name']]
+        );
+
+        return !empty($phab_ids) ? $phab_ids[0] : [];
     }
 }
