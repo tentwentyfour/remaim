@@ -4,7 +4,7 @@ sudo: required
 
 before_install:
   - curl "https://wikitech.wikimedia.org/w/index.php?title=APT_repository/Key&action=raw" | sudo apt-key add -
-  - echo "deb http://apt.wikimedia.org/wikimedia trusty-wikimedia main experimental backports" | sudo tee -a /etc/apt/sources.list
+  - echo "deb http://apt.wikimedia.org/wikimedia precise-wikimedia main" | sudo tee -a /etc/apt/sources.list
   - sudo apt-get -qq update
   - sudo apt-get install -y arcanist
 
