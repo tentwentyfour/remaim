@@ -35,7 +35,8 @@ trait FileManager
             $url = preg_replace(
                 '/http(s?):\/\//',
                 sprintf(
-                    'http${1}://%s:%s@',
+                    '%s://%s:%s@',
+                    empty($this->config['redmine']['protocol']) ? 'http${1}' : $this->config['redmine']['protocol'],
                     $this->config['redmine']['user'],
                     $this->config['redmine']['password']
                 ),

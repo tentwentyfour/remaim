@@ -150,7 +150,7 @@ trait Transactions
             );
 
             if (!empty($journal['details'])) {
-                $comment .= PHP_EOL . 'and' . PHP_EOL . implode(
+                $comment .= PHP_EOL . 'and:' . PHP_EOL . implode(
                     PHP_EOL,
                     $this->recountStory($journal['details'])
                 );
@@ -203,25 +203,25 @@ trait Transactions
             if ($action['property'] === 'attr') {
                 switch ($action['name']) {
                     case 'status_id':
-                        return 'Changed task status';
+                        return ' - changed task status';
                         break;
                     case 'done_ratio':
                         return sprintf(
-                            'Changed done from %d%% to %d%%',
+                            ' - changed done from %d%% to %d%%',
                             $action['old_value'],
                             $action['new_value']
                         );
                         break;
                     default:
                         return sprintf(
-                            'Changed another property I don\'t know about: %s',
+                            ' - changed another property I don\'t know about: %s',
                             serialize($action)
                         );
                         break;
                 }
             } elseif ($action['property'] === 'cf') {
                 return sprintf(
-                    'Changed a custom field value from "%s" to "%s"',
+                    ' - changed a custom field value from "%s" to "%s"',
                     $action['old_value'],
                     $action['new_value']
                 );

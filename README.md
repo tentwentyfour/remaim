@@ -36,6 +36,16 @@ phabricator credentials
 2. php bin/remaim (or ./vendor/bin/remaim)
 
 
+Forcing protocols
+-----------------
+
+Sometimes, Redmine will return attachment URLs using the http protocol, even though your instance is only reachable via https (Usually when you're using a reverse proxy and didn't set https to yes in the redmine configuration).
+
+In that case, you need to specify a `protocol` in the config file's Redmine section to have remaim change it before retrieving attachments.
+
+If you leave the `protocol` field empty, remaim will use the protocol returned by Redmine.
+
+
 Running tests
 -------------
 

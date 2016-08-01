@@ -39,6 +39,7 @@ class WizardSpec extends ObjectBehavior
             'redmine' => [
                 'user' => 'Hank',
                 'password' => 'ImNotMoody',
+                'protocol' => 'https',
             ],
             'phabricator' => [
                 'host' => 'https://localhost',
@@ -593,6 +594,54 @@ class WizardSpec extends ObjectBehavior
         )->shouldReturn($expectedTransactions);
     }
 
+    function it_forces_a_specific_protocol_if_it_has_been_set_in_the_config()
+    {
+        $mock = PHPMockery::mock('\Ttf\Remaim\Traits', 'file_get_contents')->andReturn('blablabla');
+        $details = [
+            'issue' => [
+                'subject' => 'Test Subject',
+                'attachments' => [
+                    [
+                        'filename' => 'Testfile.png',
+                        'content_url' => 'http://redmine.host/files/Testfile.png',
+                    ]
+                ],
+                'status' => [
+                    'id' => 1,
+                    'name' => 'Resolved',
+                ],
+                'description' => 'A random description of a task',
+            ]
+        ];
+
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('file.upload', [
+                'name' => 'Testfile.png',
+                'data_base64' => base64_encode('blablabla'),
+                'viewPolicy' => 'PHID-foobar',
+        ])
+        ->once()
+        ->andReturn('PHID-file-xyz');
+
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('file.info', [
+                'phid' => 'PHID-file-xyz',
+            ])
+        ->once()
+        ->andReturn([
+            'objectName' => 'F123456'
+        ]);
+
+        $this->uploadFiles(
+            $details['issue'],
+            'PHID-foobar'
+        )->shouldReturn([
+            '{F123456}'
+        ]);
+    }
+
     function it_attaches_uploaded_files_to_the_task_description()
     {
         $mock = PHPMockery::mock('\Ttf\Remaim\Traits', 'file_get_contents')->andReturn('blablabla');
@@ -726,7 +775,7 @@ class WizardSpec extends ObjectBehavior
             ],
             [
                 'type' => 'comment',
-                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment //someone// made with `code`\nand\nChanged done from 90% to 100%"
+                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment //someone// made with `code`\nand:\n - changed done from 90% to 100%"
             ],
             [
                 'type' => 'view',
@@ -800,7 +849,7 @@ class WizardSpec extends ObjectBehavior
             ],
             [
                 'type' => 'comment',
-                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment someone made\nand\nChanged a custom field value from \"old\" to \"new\""
+                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment someone made\nand:\n - changed a custom field value from \"old\" to \"new\""
             ],
             [
                 'type' => 'view',
@@ -873,7 +922,7 @@ class WizardSpec extends ObjectBehavior
             ],
             [
                 'type' => 'comment',
-                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment someone made\nand\nChanged another property I don't know about: a:3:{s:8:\"property\";s:4:\"attr\";s:4:\"name\";s:7:\"unknown\";s:16:\"unknown_property\";b:1;}"
+                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment someone made\nand:\n - changed another property I don't know about: a:3:{s:8:\"property\";s:4:\"attr\";s:4:\"name\";s:7:\"unknown\";s:16:\"unknown_property\";b:1;}"
             ],
             [
                 'type' => 'view',
