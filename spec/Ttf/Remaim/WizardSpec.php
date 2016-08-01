@@ -15,6 +15,8 @@ use Ttf\Remaim\Wizard;  // System under test
 use Redmine\Client;
 use Redmine\Api\Project;
 use Redmine\Api\Issue;
+use Redmine\Api\Membership;
+use Redmine\Api\CustomField;
 
 require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
 
@@ -31,7 +33,7 @@ class WizardSpec extends ObjectBehavior
      *
      * @return void
      */
-    public function let(Client $redmine, Project $project)
+    public function let(Client $redmine, Project $project, CustomField $custom_fields)
     {
         date_default_timezone_set('UTC');
 
@@ -50,6 +52,13 @@ class WizardSpec extends ObjectBehavior
                 'Low' => 25
             ]
         ];
+        $redmine->api('project')->willReturn($project);
+        $project->listing()->willReturn(['some' => 'array']);
+        $redmine->api('custom_fields')->willReturn($custom_fields);
+        $custom_fields->listing()->willReturn([
+            'Billed' => 1,
+            'Out of scope' => 2,
+        ]);
         // Proxied partial mock, see http://docs.mockery.io/en/latest/reference/partial_mocks.html#proxied-partial-mock
         $this->conduit = m::mock(new \ConduitClient($config['phabricator']['host']));
         $this->conduit
@@ -77,15 +86,14 @@ class WizardSpec extends ObjectBehavior
     function it_exits_with_an_exception_if_it_cannot_connect_to_redmine(Client $redmine, Project $project)
     {
         $redmine->api('project')->willReturn($project);
-        $project->listing()->shouldBeCalled();
+        $project->listing()->shouldBeCalled()->willReturn([]);
         $this->shouldThrow('\RuntimeException')->duringAssertConnectionToRedmine();
     }
 
     function it_returns_true_if_it_can_connect_to_redmine(Client $redmine, Project $project)
     {
         $redmine->api('project')->willReturn($project);
-        $project->listing()->shouldBeCalled();
-        $project->listing()->willReturn([
+        $project->listing()->shouldBeCalled()->willReturn([
             'Website' => [1]
         ]);
         $this->assertConnectionToRedmine()->shouldReturn(true);
@@ -206,6 +214,181 @@ class WizardSpec extends ObjectBehavior
         $this->representProject($project)->shouldReturn("[5 – Tests]\n");
     }
 
+    function it_looks_up_group_projects()
+    {
+        $groups = [
+            'data' => [
+                [
+                    'id' => 23,
+                    'type' => 'PROJ',
+                    'phid' => 'PHID-PROJ-1',
+                    'fields' => [
+                        'name' => 'Employees',
+                    ],
+                ],
+                [
+                    'id' => 42,
+                    'type' => 'PROJ',
+                    'phid' => 'PHID-PROJ-2',
+                    'fields' => [
+                        'name' => 'Collaborators',
+                    ],
+                ]
+            ],
+            'cursor' => [
+                'after' => null,
+            ]
+        ];
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('project.search', [
+            'constraints' => [
+                'icons' => [
+                    'group',
+                ],
+            ],
+        ])
+        ->once()
+        ->andReturn($groups);
+        $this->lookupGroupProjects()->shouldReturn($groups);
+    }
+
+    function it_retrieves_redmine_project_members(Client $redmine, Membership $membership)
+    {
+        $redmine->api('membership')->willReturn($membership);
+        $membership->all('23')->willReturn([
+            'memberships'  => [
+                [
+                    'id' => 187,
+                    'project' => [
+                        'id' => 23,
+                        'name' => 'Some project',
+                    ],
+                    'user' => [
+                        'id' => 11,
+                        'name' => 'Lisa Lotte',
+                    ],
+                    'roles' => [
+                        [
+                            'id' => 4,
+                            'name' => 'Developer',
+                            'inherited' => 1,
+                        ],
+                    ],
+                ],
+                [
+                    'id' => 188,
+                    'project' => [
+                        'id' => 23,
+                        'name' => 'Some project',
+                    ],
+                    'user' => [
+                        'id' => 12,
+                        'name' => 'Stan Stocks',
+                    ],
+                    'roles' => [
+                        [
+                            'id' => 4,
+                            'name' => 'Developer',
+                            'inherited' => 1,
+                        ],
+                    ],
+                ]
+            ]
+        ]);
+        $this->getRedmineProjectMembers(23)->shouldReturn([
+            'Lisa Lotte',
+            'Stan Stocks',
+        ]);
+    }
+
+    function it_creates_a_new_phabricator_project_from_redmine_details()
+    {
+        $detail = [
+            'project' => [
+                'id' => 59,
+                'name' => 'Test Project',
+                'description' => 'Project description',
+                'status' => 1,
+            ]
+        ];
+        $phab_members = [
+            'PHID-USER-dj4xmfuwa6z4ycm6d764',
+            'PHID-USER-jfllws6pouiwhzflb3p7',
+        ];
+        $policies = [
+            'view' => 'PHID-PROJ-5lryozud2u4wog3ah7lt',
+            'edit' => 'PHID-PROJ-5lryozud2u4wog3ah7lt',
+        ];
+        $project_edited = [
+            'object' => [
+                'id' => 64,
+                'phid' => 'PHID-PROJ-jtvatlu3ptn6lepfqjr6',
+            ],
+            'transactions' => [
+                [
+                    'phid' => 'PHID-XACT-PROJ-fgbfirms6x7e5kn',
+                ],
+                [
+                    'phid' => 'PHID-XACT-PROJ-mmn5wo6efgyxaf6',
+                ],
+                [
+                    'phid' => 'PHID-XACT-PROJ-dafrj6yrkdjojdj',
+                ],
+                [
+                    'phid' => 'PHID-XACT-PROJ-ls7kyu3v77ahi4t',
+                ],
+                [
+                    'phid' => 'PHID-XACT-PROJ-3mpflqb4isvr7gh',
+                ],
+                [
+                    'phid' => 'PHID-XACT-PROJ-wjzzunrkrtaao6s',
+                ],
+            ]
+        ];
+
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('project.edit', [
+            'objectIdentifier' => null,
+            'transactions' => [
+                [
+                    'type' => 'name',
+                    'value' => 'Test Project',
+                ],
+                [
+                    'type' => 'members.add',
+                    'value' => [
+                        'PHID-USER-dj4xmfuwa6z4ycm6d764',
+                        'PHID-USER-jfllws6pouiwhzflb3p7',
+                    ]
+                ],
+                [
+                    'type' => 'view',
+                    'value' => 'PHID-PROJ-5lryozud2u4wog3ah7lt'
+                ],
+                [
+                    'type' => 'edit',
+                    'value' => 'PHID-PROJ-5lryozud2u4wog3ah7lt'
+                ],
+                [
+                    'type' => 'join',
+                    'value' => 'PHID-PROJ-5lryozud2u4wog3ah7lt'
+                ],
+            ],
+        ])
+        ->andReturn($project_edited);
+
+        $this->createNewPhabricatorProject(
+            $detail,
+            $phab_members,
+            $policies
+        )->shouldReturn($project_edited);
+    }
+
+    /**
+     * This should rather be a functional test than a unit test though.
+     */
     function it_prints_a_message_if_the_given_project_id_does_not_exist()
     {
         $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('3', 'foobar');
@@ -594,6 +777,49 @@ class WizardSpec extends ObjectBehavior
         )->shouldReturn($expectedTransactions);
     }
 
+    function it_presents_a_summary_before_initiating_the_migration(Client $redmine, Project $project)
+    {
+        $project_detail = [
+            'project' => [
+                'name' => 'Redmine Project',
+            ],
+        ];
+
+        $redmine->api('project')->willReturn($project);
+        $project->show(34)->willReturn($project_detail);
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('y');
+
+        $phabricator_project = [
+            'name' => 'Phabricator Project',
+            'id' => 78,
+        ];
+        $policies = [
+            'view' => 'PHID-foobar',
+            'edit' => 'PHID-barbaz',
+        ];
+        $tasks = [
+            'total_count' => [10],
+        ];
+        ob_start();
+        $this->presentSummary(
+            34,
+            $phabricator_project,
+            $tasks,
+            $policies
+        )->shouldReturn(true);
+        $output = ob_get_clean();
+        expect($output)->toBe(PHP_EOL . PHP_EOL .
+            '####################' . PHP_EOL .
+            '# Pre-flight check #' . PHP_EOL .
+            '####################' . PHP_EOL .
+            'Redmine project named "Redmine Project" with ID 34.' . PHP_EOL .
+            'Target phabricator project named "Phabricator Project" with ID 78.' . PHP_EOL .
+            'View policy: PHID-foobar, Edit policy: PHID-barbaz' . PHP_EOL .
+            '10 tickets to be migrated!' . PHP_EOL . 'OK to continue? [y/N]: ' . PHP_EOL .
+            '> '
+        );
+    }
+
     function it_forces_a_specific_protocol_if_it_has_been_set_in_the_config()
     {
         $mock = PHPMockery::mock('\Ttf\Remaim\Traits', 'file_get_contents')->andReturn('blablabla');
@@ -849,7 +1075,7 @@ class WizardSpec extends ObjectBehavior
             ],
             [
                 'type' => 'comment',
-                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment someone made\nand:\n - changed a custom field value from \"old\" to \"new\""
+                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment someone made\nand:\n - changed \"Billed\" from \"old\" to \"new\""
             ],
             [
                 'type' => 'view',
@@ -933,13 +1159,14 @@ class WizardSpec extends ObjectBehavior
                 'value' => 'PHID-barbaz',
             ],
         ];
-
+        ob_start();
         $this->assembleTransactionsFor(
             'PHID-random',
             $issue,
             $policies,
             []
         )->shouldReturn($expectedTransactions);
+        ob_end_clean();
     }
 
     function it_transforms_watchers_into_subscribers()

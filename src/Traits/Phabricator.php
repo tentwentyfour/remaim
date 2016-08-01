@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.0.2 The day after
+ * @version  0.1.0 Short Circuit
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -83,6 +83,15 @@ trait Phabricator
         return $result['data'];
     }
 
+    /**
+     * Create a new phabricator project
+     *
+     * @param  array $detail       Project detail retrieved from Redmine
+     * @param  array $phab_members List of Phabricator user PHIDs
+     * @param  array $policies     Policies to be applied to the project
+     *
+     * @return array               Result of conduit call
+     */
     public function createNewPhabricatorProject($detail, $phab_members, $policies)
     {
         return $this->conduit->callMethodSynchronous(

@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.0.2 The day after
+ * @version  0.1.0 Short Circuit
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -20,6 +20,13 @@ namespace Ttf\Remaim\Traits;
 
 trait Transactions
 {
+    /**
+     * Create transactions to set policies
+     *
+     * @param  array $policies Policies to be applied
+     *
+     * @return array           Policy transactions
+     */
     public function createPolicyTransactions($policies)
     {
         $viewPolicy = [
@@ -37,6 +44,14 @@ trait Transactions
         ];
     }
 
+    /**
+     * Creates a priority transaction. Priority transactions expect strings,
+     * not integers.
+     *
+     * @param  array $issue Issue details
+     *
+     * @return array        Priority transaction
+     */
     public function createPriorityTransaction($issue)
     {
         if (!isset($issue['priority']) || empty($issue['priority'])) {
@@ -44,36 +59,36 @@ trait Transactions
         }
 
         $prio = $issue['priority']['name'];
-        $priority = $this->priority_map[$prio];
-        if (!$priority) {
-            printf('We could not find a matching priority for your priority "%s"!' . "\n> ", $prio);
-            foreach ($this->priority_map as $priority2 => $value) {
-                printf("%s\n", $priority2);
+        if (!array_key_exists($prio, $this->priority_map)) {
+            printf(
+                'We could not find a matching priority for your priority "%s"!'
+                . PHP_EOL
+                . '> ',
+                $prio
+            );
+            $i = 0;
+            foreach ($this->priority_map as $label => $value) {
+                printf(
+                    '[%d] – %s' . PHP_EOL,
+                    $i++,
+                    $label
+                );
             }
 
-            printf('Press [1] to add %s to the map_list; [2] if you want to give it a value from the map_list');
-            $fp = fopen('php://stdin', 'r');
-            $map_check = trim(fgets($fp, 1024));
-            fclose($fp);
-
-            if ($map_check == '1') {
-                $this->priority_map = $prio;
-            }
-            elseif ($map_check == '2') {
-                printf('Enter the wished value!');
-                $fp = fopen('php://stdin', 'r');
-                $new_value = trim(fgets($fp, 1024));
-                fclose($fp);
-                $prio = $new_value;
-
-            }
+            $selected = $this->prompt(
+                sprintf(
+                    'Please select a priority to use for %s',
+                    $prio
+                )
+            );
+            $weigths = array_values($this->priority_map);
+            $this->priority_map[$prio] = $weights[$selected];
         }
 
-        $transactions = [
+        return [
             'type' => 'priority',
-            'value' => $prio,
+            'value' => (string) $this->priority_map[$prio], // Conduit expects a string o_O
         ];
-        return $transactions;
     }
 
     /**
@@ -212,7 +227,21 @@ trait Transactions
                             $action['new_value']
                         );
                         break;
+                    case 'priority_id':
+                        return sprintf(
+                            ' - %s the task\'s priority',
+                            $action['new_value'] > $action['old_value'] ? 'Raised' : 'Lowered'
+                        );
+                        break;
+                    case 'assigned_to_id':
+                        // todo
+                        // only has new_value!
+                        break;
+                    case 'description':
+                        return ' - changed the description';
+                        break;
                     default:
+                        printf('Encountered an unknown journal entry: %s' . PHP_EOL, serialize($action));
                         return sprintf(
                             ' - changed another property I don\'t know about: %s',
                             serialize($action)
@@ -220,11 +249,21 @@ trait Transactions
                         break;
                 }
             } elseif ($action['property'] === 'cf') {
-                return sprintf(
-                    ' - changed a custom field value from "%s" to "%s"',
-                    $action['old_value'],
-                    $action['new_value']
-                );
+                if (isset($action['old_value'])) {
+                    return sprintf(
+                        ' - changed "%s" from "%s" to "%s"',
+                        $this->custom_fields[$action['name']],
+                        $action['old_value'],
+                        $action['new_value']
+                    );
+                } else {
+                    return sprintf(
+                        ' - set "%s" to "%s"',
+                        $this->custom_fields[$action['name']],
+                        $action['new_value']
+                    );
+                }
+
             }
         }, $details);
     }
@@ -247,15 +286,18 @@ trait Transactions
             );
 
             $stati = array_unique(array_values($this->status_map));
+            $i = 0;
             foreach ($stati as $available) {
-                printf("%s\n", $available);
+                printf(
+                    '[%d] – %s' . PHP_EOL,
+                    $i++,
+                    $available
+                );
             }
 
-            printf('Enter the desired value!' . "\n> ");
-            $fp = fopen('php://stdin', 'r');
-            $new_value = trim(fgets($fp, 1024));
-            fclose($fp);
-            $this->status_map[$status] = $new_value;
+            $selected = $this->prompt('Select a status to use');
+            $values = array_values($this->status_map);
+            $this->status_map[$status] = $values[$selected];
         }
 
         $transactions = [
@@ -276,7 +318,7 @@ trait Transactions
      */
     public function createDescriptionTransaction($issue, $policies, $task = null)
     {
-        $description = isset($issue['description']) ? $issue['description'] : '';
+        $description = isset($issue['description']) ? $this->convertFromRedmine($issue['description']) : '';
         $file_ids = $this->uploadFiles($issue, $policies['view']);
 
         if (empty($file_ids)

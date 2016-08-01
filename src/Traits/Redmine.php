@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.0.2 The day after
+ * @version  0.1.0 Short Circuit
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -120,5 +120,14 @@ trait Redmine
     }
 
 
+    /**
+     * Needs to be finished and needs tests (see Transactions::recountStory)
+     * @param  [type] $id [description]
+     * @return [type]     [description]
+     */
+    public function getRedmineUserById($id)
+    {
+        // var_dump($this->redmine->user->show($id));
+    }
 
 }

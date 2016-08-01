@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.0.2 The day after
+ * @version  0.1.0 Short Circuit
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -44,7 +44,6 @@ trait FileManager
             );
 
             $encoded = base64_encode(file_get_contents($url));
-
             $file_phid = $this->conduit->callMethodSynchronous(
                 'file.upload',
                 [

@@ -4,7 +4,7 @@
  *
  * @package Ttf\Remaim
  *
- * @version  0.0.2 The day after
+ * @version  0.1.0 Short Circuit
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -32,6 +32,8 @@ class Wizard
     private $redmine;
     private $conduit;
     private $priority_map;
+    private $status_map;
+    private $custom_fields;
 
     /**
      * Initialize Migration Wizard
@@ -46,9 +48,11 @@ class Wizard
         $this->redmine = $redmine;
         $this->conduit = $conduit;
         $this->priority_map = $config['priority_map'];
-        $this->status_map = ['Open' => 'open', 'Resolved' => 'resolved'];
         try {
             $this->status_map = $this->fetchPhabricatorStati();
+            $this->custom_fields = array_flip(
+                $this->redmine->custom_fields->listing()
+            );
         } catch (\HTTPFutureCURLResponseStatus $e) {
             fwrite(
                 STDERR,
@@ -71,7 +75,6 @@ class Wizard
     {
         try {
             $this->assertConnectionToRedmine();
-
             $redmine_project = $this->selectProject($this->listRedmineProjects());
             $tasks = $this->getIssuesForProject($redmine_project);
 
@@ -119,7 +122,7 @@ class Wizard
      * @param  array $phabricator_project Details about phabricator project (destination)
      * @param  array $tasks               Details about issues to be migrated
      *
-     * @return [type]                      [description]
+     * @return Bool                       True if user accepts the summary
      */
     public function presentSummary(
         $redmine_project,
@@ -147,7 +150,7 @@ class Wizard
 
         $answer = $this->prompt(
             sprintf(
-                '%d tickets to be migrated! OK to continue? [y/N]',
+                '%d tickets to be migrated!' . PHP_EOL . 'OK to continue? [y/N]',
                 $tasks['total_count'][0]
             )
         );
