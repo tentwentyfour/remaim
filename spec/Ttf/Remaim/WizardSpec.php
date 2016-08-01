@@ -195,7 +195,7 @@ class WizardSpec extends ObjectBehavior
         $this->listRedmineProjects()->shouldReturn($project_array);
     }
 
-    function it_returns_the_projects_id_and_name()
+    function it_returns_the_redmine_projects_id_and_name()
     {
         $project = [
             'id' => 5,
@@ -203,6 +203,54 @@ class WizardSpec extends ObjectBehavior
             'description' => 'Test has to ignore me'
         ];
         $this->representProject($project)->shouldReturn("[5 – Tests]\n");
+    }
+
+    function it_prints_a_message_if_the_given_project_id_does_not_exist()
+    {
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('3', 'foobar');
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('project.search', [
+            'queryKey' => 'all',
+            'after' => 0,
+        ])
+        ->once()
+        ->andReturn([
+            'data' => [
+                [
+                    'id' => 1,
+                    'phid' => 'PHID-project-1',
+                    'fields' => [
+                        'name' => 'First project',
+                    ]
+                ],
+                [
+                    'id' => 4,
+                    'phid' => 'PHID-project-2',
+                    'fields' => [
+                        'name' => 'Second project',
+                    ]
+                ],
+            ],
+            'cursor' => [
+                'after' => null,
+            ],
+        ]);
+        $this->conduit
+        ->shouldReceive('callMethodSynchronous')
+        ->with('project.query', [
+            'slugs' => ['foobar']
+        ])
+        ->once()
+        ->andReturn([]);
+
+        ob_start();
+        $this->actOnChoice('', 1);
+        $print = ob_get_clean();
+
+        expect($print)->toBe(
+            "2 total projects retrieved.\n\n[1 – First project]\n[4 – Second project]\n\nPlease select (type) a project ID or leave empty to go back to the previous step: \n> Sorry, if a project with id 3 exists, you don't seem to have access to it. Please check your permissions and the id you specified and try again.\nPlease enter the id or slug of the project in Phabricator if you know it.\nPress\n[Enter] to see a list of available projects in Phabricator,\n[0] to create a new project from the Redmine project's details or\n[q] to quit and abort: \n> "
+        );
     }
 
     function it_throws_an_exception_if_no_tasks_are_found(Client $redmine, Issue $issue)

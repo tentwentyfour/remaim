@@ -200,24 +200,31 @@ trait Transactions
     public function recountStory($details)
     {
         return array_map(function ($action) {
-            switch ($action['name']) {
-                case 'status_id':
-                    return 'Changed task status';
-                    break;
-                case 'done_ratio':
-                    return sprintf(
-                        'Changed done from %d%% to %d%%',
-                        $action['old_value'],
-                        $action['new_value']
-                    );
-                    break;
-                default:
-                    return sprintf(
-                        'Changed a custom field value from %s to %s',
-                        $action['old_value'],
-                        $action['new_value']
-                    );
-                    break;
+            if ($action['property'] === 'attr') {
+                switch ($action['name']) {
+                    case 'status_id':
+                        return 'Changed task status';
+                        break;
+                    case 'done_ratio':
+                        return sprintf(
+                            'Changed done from %d%% to %d%%',
+                            $action['old_value'],
+                            $action['new_value']
+                        );
+                        break;
+                    default:
+                        return sprintf(
+                            'Changed another property I don\'t know about: %s',
+                            serialize($action)
+                        );
+                        break;
+                }
+            } elseif ($action['property'] === 'cf') {
+                return sprintf(
+                    'Changed a custom field value from %s to %s',
+                    $action['old_value'],
+                    $action['new_value']
+                );
             }
         }, $details);
     }

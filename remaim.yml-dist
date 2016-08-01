@@ -1,5 +1,6 @@
 redmine:
   host: https://redmine.1024.lu
+  protocol:
   user:
   password:
 phabricator:

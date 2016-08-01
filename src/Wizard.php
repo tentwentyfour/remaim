@@ -172,9 +172,12 @@ class Wizard
             $this->prompt(
                 'Please enter the id or slug of the project in Phabricator if you know it.'
                 . PHP_EOL
-                . 'Press [Enter] to see a list of available projects in Phabricator or'
+                . 'Press' . PHP_EOL
+                . '[Enter] to see a list of available projects in Phabricator,'
                 . PHP_EOL
-                . 'Enter [0] to create a new project from the Redmine project\'s details'
+                . '[0] to create a new project from the Redmine project\'s details or'
+                . PHP_EOL
+                . '[q] to quit and abort'
             ),
             $project_id
         );
@@ -188,9 +191,12 @@ class Wizard
      *
      * @return array                   Array describing and identifying the phabricator project to migrate to.
      */
-    private function actOnChoice($choice, $redmine_project)
+    public function actOnChoice($choice, $redmine_project)
     {
         switch ($choice) {
+            case 'q':
+                print('Bye bye!' . PHP_EOL);
+                exit(0);
             case '':
                 $projects = $this->getAllPhabricatorProjects();
                 ksort($projects);
@@ -203,6 +209,12 @@ class Wizard
                         'ids' => [$project_id]
                     ];
                     $verb = 'Selected';
+                } else {
+                    printf(
+                        'Sorry, if a project with id %d exists, you don\'t seem to have access to it. Please check your permissions and the id you specified and try again.' . PHP_EOL,
+                        $project_id
+                    );
+                    return $this->selectOrCreatePhabricatorProject($redmine_project);
                 }
                 break;
             case '0':
@@ -240,18 +252,20 @@ class Wizard
 
         if (!isset($query)) {
             throw new \RuntimeException(
-                'Failed to identify a phabricator project to migrate to.'
+                'Failed to build a project lookup query to find a Phabricator project to migrate to.'
             );
         }
 
         $project = $this->findPhabricatorProject($query);
-        printf(
-            '%s project "%s" with PHID %s' . "\n",
-            $verb,
-            $project['name'],
-            $project['phid']
-        );
-        return $project;
+        if ($project) {
+            printf(
+                '%s project "%s" with PHID %s' . "\n",
+                $verb,
+                $project['name'],
+                $project['phid']
+            );
+            return $project;
+        }
     }
 
 
