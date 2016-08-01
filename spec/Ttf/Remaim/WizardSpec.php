@@ -820,6 +820,79 @@ class WizardSpec extends ObjectBehavior
         )->shouldReturn($expectedTransactions);
     }
 
+    function it_saves_unknown_redmine_journals_entries_into_serialed_data()
+    {
+        $issue = [
+            'subject' => 'Test Subject',
+            'attachments' => [],
+            'status' => [
+                'id' => 1,
+                'name' => 'Resolved',
+            ],
+            'description' => 'A random description of a task',
+            'journals' => [
+                [
+                    'id' => 6535,
+                    'user' => [
+                        'id' => 24,
+                        'name' => 'Albert Einstein',
+                    ],
+                    'notes' => 'A comment someone made',
+                    'created_on' => '2015-04-27T15:55:47Z',
+                    'details' => [
+                        [
+                            'property' => 'attr',
+                            'name' => 'unknown',
+                            'unknown_property' => true
+                        ]
+                    ]
+                ]
+            ]
+        ];
+        $policies = [
+            'view' => 'PHID-foobar',
+            'edit' => 'PHID-barbaz',
+        ];
+
+        $expectedTransactions = [
+            [
+                'type' => 'projects.set',
+                'value' => ['PHID-random'],
+            ],
+            [
+                'type' => 'title',
+                'value' => 'Test Subject',
+            ],
+            [
+                'type' => 'description',
+                'value' => "A random description of a task",
+            ],
+            [
+                'type' => 'status',
+                'value' => 'resolved',
+            ],
+            [
+                'type' => 'comment',
+                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment someone made\nand\nChanged another property I don't know about: a:3:{s:8:\"property\";s:4:\"attr\";s:4:\"name\";s:7:\"unknown\";s:16:\"unknown_property\";b:1;}"
+            ],
+            [
+                'type' => 'view',
+                'value' => 'PHID-foobar',
+            ],
+            [
+                'type' => 'edit',
+                'value' => 'PHID-barbaz',
+            ],
+        ];
+
+        $this->assembleTransactionsFor(
+            'PHID-random',
+            $issue,
+            $policies,
+            []
+        )->shouldReturn($expectedTransactions);
+    }
+
     function it_transforms_watchers_into_subscribers()
     {
         $issue = [
