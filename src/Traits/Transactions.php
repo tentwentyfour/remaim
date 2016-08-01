@@ -221,7 +221,7 @@ trait Transactions
                 }
             } elseif ($action['property'] === 'cf') {
                 return sprintf(
-                    'Changed a custom field value from %s to %s',
+                    'Changed a custom field value from "%s" to "%s"',
                     $action['old_value'],
                     $action['new_value']
                 );
