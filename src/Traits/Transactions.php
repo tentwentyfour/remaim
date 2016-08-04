@@ -240,8 +240,18 @@ trait Transactions
                     case 'description':
                         return ' - changed the description';
                         break;
+                    case 'subject':
+                        return sprintf(
+                            ' - changed the subject from "%s" to "%s"',
+                            $action['old_value'],
+                            $action['new_value']
+                        );
+                        break;
                     default:
-                        printf('Encountered an unknown journal entry: %s' . PHP_EOL, serialize($action));
+                        printf(
+                            'Encountered an unknown journal entry: %s' . PHP_EOL,
+                            serialize($action)
+                        );
                         return sprintf(
                             ' - changed another property I don\'t know about: %s',
                             serialize($action)
