@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.1.0 Short Circuit
+ * @version  0.1.1 Short Circuit
  * @since    0.1.0 Short Circuit
  *
   * @author  David Raison <david@tentwentyfour.lu>

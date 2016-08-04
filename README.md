@@ -15,6 +15,8 @@ If such is not the case, you will have to adapt the path inside lib/Wizard.php
 Installation
 ------------
 
+Clone the project from https://github.com/tentwentyfour/remaim, then run
+
 ```bash
 composer install
 ```
