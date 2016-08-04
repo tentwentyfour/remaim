@@ -48,7 +48,6 @@ trait Redmine
     {
         $reply = $this->redmine->project->all(['limit' => 1024]);
         $ids = array_column($reply['projects'], 'id');
-        sort($ids);
 
         $projects = array_map(function ($project) {
             if (!isset($project['parent'])) {
@@ -67,8 +66,8 @@ trait Redmine
 
         return [
             'total_count' => $reply['total_count'][0],
-            'lowest' => array_shift($ids),
-            'highest' => array_pop($ids),
+            'lowest' => min($ids),
+            'highest' => max($ids),
             'projects' => $projects,
         ];
     }

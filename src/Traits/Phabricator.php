@@ -44,7 +44,6 @@ trait Phabricator
     {
         $result = $this->retrieveAllPhabricatorProjects();
         $ids = array_column($result, 'id');
-        sort($ids);
 
         if ($result && !empty($result)) {
             $projects = array_reduce($result, function ($carry, $project) {
@@ -58,8 +57,8 @@ trait Phabricator
 
             return [
                 'total_count' => sizeof($result),
-                'lowest' => array_shift($ids),
-                'highest' => array_pop($ids),
+                'lowest' => min($ids),
+                'highest' => max($ids),
                 'projects' => $projects,
             ];
         }
