@@ -386,6 +386,33 @@ class WizardSpec extends ObjectBehavior
         )->shouldReturn($project_edited);
     }
 
+    function it_validates_user_input_for_selections()
+    {
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('3');
+        ob_start();
+        $this->selectIndexFromList('Select something', 4)->shouldReturn('3');
+        $out = ob_get_clean();
+        expect($out)->toBe('Select something:' . PHP_EOL.'> ');
+    }
+
+    function it_accepts_empty_input_for_selections_if_requested()
+    {
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('');
+        ob_start();
+        $this->selectIndexFromList('Select something', 4, 0, true)->shouldReturn('');
+        $out = ob_get_clean();
+        expect($out)->toBe('Select something:' . PHP_EOL.'> ');
+    }
+
+    function it_recurses_if_the_select_value_does_not_validate()
+    {
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('4', '2');
+        ob_start();
+        $this->selectIndexFromList('Select something', 2)->shouldReturn('2');
+        $out = ob_get_clean();
+        expect($out)->toBe('Select something:' . PHP_EOL.'> You must select a value between 0 and 2' . PHP_EOL . 'Select something:' . PHP_EOL . '> ');
+    }
+
     /**
      * This should rather be a functional test than a unit test though.
      */
@@ -433,7 +460,7 @@ class WizardSpec extends ObjectBehavior
         $print = ob_get_clean();
 
         expect($print)->toBe(
-            "2 total projects retrieved.\n\n[1 – First project]\n[4 – Second project]\n\nPlease select (type) a project ID or leave empty to go back to the previous step: \n> Sorry, if a project with id 3 exists, you don't seem to have access to it. Please check your permissions and the id you specified and try again.\nPlease enter the id or slug of the project in Phabricator if you know it.\nPress\n[Enter] to see a list of available projects in Phabricator,\n[0] to create a new project from the Redmine project's details or\n[q] to quit and abort: \n> "
+            "2 total projects retrieved.\n\n[1 – First project]\n[4 – Second project]\n\nPlease select (type) a project ID or leave empty to go back to the previous step:\n> Sorry, if a project with id 3 exists, you don't seem to have access to it. Please check your permissions and the id you specified and try again.\nPlease enter the id or slug of the project in Phabricator if you know it.\nPress\n[Enter] to see a list of available projects in Phabricator,\n[0] to create a new project from the Redmine project's details or\n[q] to quit and abort:\n> "
         );
     }
 
@@ -613,6 +640,61 @@ class WizardSpec extends ObjectBehavior
         $this->getPhabricatorUserPhid($lookupone)->shouldReturn([]);
     }
 
+    function it_accepts_indexes_unknown_stati()
+    {
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('0');
+        $issue = [
+            'subject' => 'Test Subject',
+            'attachments' => [],
+            'status' => [
+                'id' => 1,
+                'name' => 'Unknown',
+            ],
+            'description' => 'A random description of a task',
+        ];
+
+        ob_start();
+        $this->createStatusTransaction($issue)->shouldReturn([
+            'type' => 'status',
+            'value' => 'open'
+        ]);
+        $output = ob_get_clean();
+        expect($output)->toBe(
+            'We could not find a matching key for the status "Unknown"!' . PHP_EOL
+            . '[0] – open' . PHP_EOL
+            . '[1] – resolved' . PHP_EOL
+            . 'Select a status to use:' . PHP_EOL
+            . '> '
+        );
+    }
+
+    function it_also_accepts_values_for_unknown_stati()
+    {
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('open');
+        $issue = [
+            'subject' => 'Test Subject 2',
+            'attachments' => [],
+            'status' => [
+                'id' => 2,
+                'name' => 'Unknown',
+            ],
+            'description' => 'A random description of another task',
+        ];
+        ob_start();
+        $this->createStatusTransaction($issue)->shouldReturn([
+            'type' => 'status',
+            'value' => 'open'
+        ]);
+        $output = ob_get_clean();
+        expect($output)->toBe(
+            'We could not find a matching key for the status "Unknown"!' . PHP_EOL
+            . '[0] – open' . PHP_EOL
+            . '[1] – resolved' . PHP_EOL
+            . 'Select a status to use:' . PHP_EOL
+            . '> '
+        );
+    }
+
     function it_keeps_asking_if_the_status_cannot_be_used()
     {
         $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('2', 'open');
@@ -642,6 +724,36 @@ class WizardSpec extends ObjectBehavior
             . 'Select a status to use:' . PHP_EOL
             . '> '
         );
+    }
+
+    function it_does_not_ask_twice_for_the_same_unknown_status()
+    {
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('0');
+        $issue = [
+            'subject' => 'Test Subject',
+            'attachments' => [],
+            'status' => [
+                'id' => 6,
+                'name' => 'Unknown',
+            ],
+            'description' => 'A random description of a task',
+        ];
+        ob_start();
+        $this->createStatusTransaction($issue)->shouldReturn([
+            'type' => 'status',
+            'value' => 'open'
+        ]);
+        $output = ob_get_clean();
+        expect($output)->toBe('We could not find a matching key for the status "Unknown"!' . PHP_EOL
+            . '[0] – open' . PHP_EOL
+            . '[1] – resolved' . PHP_EOL
+            . 'Select a status to use:' . PHP_EOL
+            . '> '
+        );
+        $this->createStatusTransaction($issue)->shouldReturn([
+            'type' => 'status',
+            'value' => 'open'
+        ]);
     }
 
     function it_generates_a_title_transaction_for_new_tasks()
@@ -846,7 +958,7 @@ class WizardSpec extends ObjectBehavior
             'Redmine project named "Redmine Project" with ID 34.' . PHP_EOL .
             'Target phabricator project named "Phabricator Project" with ID 78.' . PHP_EOL .
             'View policy: PHID-foobar, Edit policy: PHID-barbaz' . PHP_EOL .
-            '10 tickets to be migrated!' . PHP_EOL . 'OK to continue? [y/N]: ' . PHP_EOL .
+            '10 tickets to be migrated!' . PHP_EOL . 'OK to continue? [y/N]:' . PHP_EOL .
             '> '
         );
     }

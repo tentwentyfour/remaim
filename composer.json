@@ -1,5 +1,5 @@
 {
-    "name":         "1024/remaim",
+    "name":         "tentwentyfour/remaim",
     "description":  "Redmine to Phabricator Importer – migrates issues from Redmine to Maniphest using the Conduit API",
     "keywords":     ["Phabricator", "Redmine", "Maniphest", "migration", "import"],
     "homepage":     "https://www.1024.lu",

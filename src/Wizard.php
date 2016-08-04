@@ -102,7 +102,7 @@ class Wizard
                 '%d tickets successfully migrated or updated!' . PHP_EOL,
                 sizeof($results)
             );
-            if (strtolower($this->prompt('Import another project?')) === 'y') {
+            if (strtolower($this->prompt('Import another project? [y/N]')) === 'y') {
                 $this->run();
             }
         } catch (NoIssuesFoundException $e) {
@@ -221,7 +221,7 @@ class Wizard
             case '':
                 $projects = $this->getAllPhabricatorProjects();
                 ksort($projects);
-                $project_id = (int) $this->selectProject($projects, true);
+                $project_id = $this->selectProject($projects, true);
 
                 if ('' === $project_id) {
                     return $this->selectOrCreatePhabricatorProject($redmine_project);
@@ -399,7 +399,8 @@ class Wizard
         return $this->selectIndexFromList(
             $message,
             $projects['highest'],
-            $projects['lowest']
+            $projects['lowest'],
+            $can_return
         );
     }
 
@@ -431,10 +432,10 @@ class Wizard
      *
      * @return String           User input
      */
-    private function selectIndexFromList($message, $max, $min = 0)
+    public function selectIndexFromList($message, $max, $min = 0, $allow_empty = false)
     {
         $selectedIndex = $this->prompt($message);
-        if (!is_numeric($selectedIndex) || $selectedIndex > $max) {
+        if (!$allow_empty && (!is_numeric($selectedIndex) || $selectedIndex > $max)) {
             printf(
                 'You must select a value between %d and %d' . PHP_EOL,
                 $min,
