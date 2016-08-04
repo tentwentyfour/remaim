@@ -264,8 +264,11 @@ trait Phabricator
                 $i - 1
             );
             $keys = array_keys($tasks);
-            $key = $keys[$index];
-            return $tasks[$key];
+            if (array_key_exists($index, $keys)) {
+                $key = $keys[$index];
+                return $tasks[$key];
+            }
+            return [];
         } elseif (sizeof($tasks) === 1) {
             return array_pop($tasks);
         }

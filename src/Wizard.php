@@ -20,6 +20,8 @@ namespace Ttf\Remaim;
 use Redmine\Client;
 use Redmine\Api\Issue;
 
+use Ttf\Remaim\Exception\NoIssuesFoundException;
+
 class Wizard
 {
     use Traits\Transactions;
@@ -100,6 +102,22 @@ class Wizard
                 '%d tickets successfully migrated or updated!' . PHP_EOL,
                 sizeof($results)
             );
+            if (strtolower($this->prompt('Import another project?')) === 'y') {
+                $this->run();
+            }
+        } catch (NoIssuesFoundException $e) {
+            if ('y' === strtolower($this->prompt(
+                sprintf(
+                    'There were no issues found on the selected project with ID %d' . PHP_EOL
+                    . 'Would you like to continue with another project?' . PHP_EOL
+                    . 'Select [y] to continue, [N] to exit',
+                    $redmine_project
+                )
+            ))) {
+                $this->run();
+            } else {
+                print('Bye bye! See you soon!' . PHP_EOL);
+            }
         } catch (\Exception $e) {
             die(
                 sprintf(
@@ -395,7 +413,7 @@ class Wizard
     private function prompt($question)
     {
         printf(
-            '%s: ' . PHP_EOL . '> ',
+            '%s:' . PHP_EOL . '> ',
             $question
         );
         $fp = fopen('php://stdin', 'r');
@@ -416,7 +434,7 @@ class Wizard
     private function selectIndexFromList($message, $max, $min = 0)
     {
         $selectedIndex = $this->prompt($message);
-        if ($selectedIndex > $max) {
+        if (!is_numeric($selectedIndex) || $selectedIndex > $max) {
             printf(
                 'You must select a value between %d and %d' . PHP_EOL,
                 $min,

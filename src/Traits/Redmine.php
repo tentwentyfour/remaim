@@ -18,6 +18,8 @@
 
 namespace Ttf\Remaim\Traits;
 
+use Ttf\Remaim\Exception\NoIssuesFoundException;
+
 trait Redmine
 {
     /**
@@ -87,7 +89,7 @@ trait Redmine
         ]);
 
         if (!$tasks || empty($tasks['issues'])) {
-            throw new \RuntimeException(
+            throw new NoIssuesFoundException(
                 sprintf(
                     "No tasks found on project with id %d.\n There is nothing to do, I'm getting some sleep now.\nYou know where to find me if you ever need me again!\n",
                     $project_id

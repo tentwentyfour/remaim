@@ -450,7 +450,7 @@ class WizardSpec extends ObjectBehavior
             'limit' => 1024,
         ])->shouldBeCalled();
 
-        $this->shouldThrow('\RuntimeException')->during('getIssuesForProject', [1]);
+        $this->shouldThrow('\Ttf\Remaim\Exception\NoIssuesFoundException')->during('getIssuesForProject', [1]);
     }
 
     function it_throws_an_exception_if_looking_up_tasks_failed(Client $redmine, Issue $issue)
@@ -465,7 +465,7 @@ class WizardSpec extends ObjectBehavior
             'project_id' => 1,
             'limit' => 1024,
         ])->shouldBeCalled();
-        $this->shouldThrow('\RuntimeException')->during('getIssuesForProject', [1]);
+        $this->shouldThrow('\Ttf\Remaim\Exception\NoIssuesFoundException')->during('getIssuesForProject', [1]);
     }
 
     function it_returns_issue_details_if_issues_are_found(Client $redmine, Issue $issue)
@@ -611,6 +611,37 @@ class WizardSpec extends ObjectBehavior
         ->andReturn([]);
 
         $this->getPhabricatorUserPhid($lookupone)->shouldReturn([]);
+    }
+
+    function it_keeps_asking_if_the_status_cannot_be_used()
+    {
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('2', 'open');
+        $issue = [
+            'subject' => 'Test Subject',
+            'attachments' => [],
+            'status' => [
+                'id' => 6,
+                'name' => 'Unknown',
+            ],
+            'description' => 'A random description of a task',
+        ];
+        ob_start();
+        $this->createStatusTransaction($issue)->shouldReturn([
+            'type' => 'status',
+            'value' => 'open'
+        ]);
+        $output = ob_get_clean();
+        expect($output)->toBe('We could not find a matching key for the status "Unknown"!' . PHP_EOL
+            . '[0] – open' . PHP_EOL
+            . '[1] – resolved' . PHP_EOL
+            . 'Select a status to use:' . PHP_EOL
+            . '> '
+            . 'We could not find a matching key for the status "Unknown"!' . PHP_EOL
+            . '[0] – open' . PHP_EOL
+            . '[1] – resolved' . PHP_EOL
+            . 'Select a status to use:' . PHP_EOL
+            . '> '
+        );
     }
 
     function it_generates_a_title_transaction_for_new_tasks()
@@ -1358,7 +1389,7 @@ class WizardSpec extends ObjectBehavior
         ]);
         $prompt = ob_get_clean();
         expect($prompt)->toBe(
-            "Oops, I found more than one already existing task in phabricator.\nPlease indicate which one to update.\n[0] =>\t[ID]: T1\n\t[Status]: Resolved\n\t[Name]: Test Subject\n\t[Description]: A random description of a task\n[1] =>\t[ID]: T2\n\t[Status]: Open\n\t[Name]: Similar Task Subject\n\t[Description]: A random description of a task\nEnter the [index] of the task you would like to use: \n> "
+            "Oops, I found more than one already existing task in phabricator.\nPlease indicate which one to update.\n[0] =>\t[ID]: T1\n\t[Status]: Resolved\n\t[Name]: Test Subject\n\t[Description]: A random description of a task\n[1] =>\t[ID]: T2\n\t[Status]: Open\n\t[Name]: Similar Task Subject\n\t[Description]: A random description of a task\nEnter the [index] of the task you would like to use:\n> "
         );
     }
 

@@ -297,14 +297,19 @@ trait Transactions
 
             $selected = $this->prompt('Select a status to use');
             $values = array_values($this->status_map);
-            $this->status_map[$status] = $values[$selected];
+            if (array_key_exists($selected, $values)) { // if $select < sizeof($values)
+                $this->status_map[$status] = $values[$selected];
+            } elseif (in_array($selected, $values)) {
+                $this->status_map[$status] = $selected;
+            } else {
+                return $this->createStatusTransaction($issue);
+            }
         }
 
-        $transactions = [
+        return [
             'type' => 'status',
             'value' => $this->status_map[$status],
         ];
-        return $transactions;
     }
 
     /**
