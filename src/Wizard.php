@@ -168,7 +168,8 @@ class Wizard
 
         $answer = $this->prompt(
             sprintf(
-                '%d tickets to be migrated!' . PHP_EOL . 'OK to continue? [y/N]',
+                '%d tickets to be migrated!' . PHP_EOL . PHP_EOL
+                . 'OK to continue? [y/N]',
                 $tasks['total_count'][0]
             )
         );

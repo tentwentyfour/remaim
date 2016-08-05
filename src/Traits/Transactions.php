@@ -236,6 +236,8 @@ trait Transactions
                     case 'assigned_to_id':
                         // todo
                         // only has new_value!
+                        // (what if the issue is re-assigned to another person?)
+                        // need to have a map of user ids!
                         break;
                     case 'description':
                         return ' - changed the description';
@@ -259,7 +261,7 @@ trait Transactions
                         break;
                 }
             } elseif ($action['property'] === 'cf') {
-                if (isset($action['old_value'])) {
+                if (isset($action['old_value']) && !empty($action['old_value'])) {
                     return sprintf(
                         ' - changed "%s" from "%s" to "%s"',
                         $this->custom_fields[$action['name']],
