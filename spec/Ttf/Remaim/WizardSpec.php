@@ -958,7 +958,7 @@ class WizardSpec extends ObjectBehavior
             'Redmine project named "Redmine Project" with ID 34.' . PHP_EOL .
             'Target phabricator project named "Phabricator Project" with ID 78.' . PHP_EOL .
             'View policy: PHID-foobar, Edit policy: PHID-barbaz' . PHP_EOL .
-            '10 tickets to be migrated!' . PHP_EOL . 'OK to continue? [y/N]:' . PHP_EOL .
+            '10 tickets to be migrated!' . PHP_EOL . PHP_EOL . 'OK to continue? [y/N]:' . PHP_EOL .
             '> '
         );
     }
