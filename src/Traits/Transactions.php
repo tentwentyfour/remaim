@@ -233,12 +233,20 @@ trait Transactions
                             $action['new_value'] > $action['old_value'] ? 'Raised' : 'Lowered'
                         );
                         break;
-                    case 'assigned_to_id':
-                        // todo
-                        // only has new_value!
-                        // (what if the issue is re-assigned to another person?)
-                        // need to have a map of user ids!
-                        break;
+                    // case 'fixed_version_id':
+                    //     // Needs to fetch versions for version ids
+                    //     return sprintf(
+                    //          ' - changed target version from "%s" to "%s"',
+                    //          $this->project->target_versions[$action['old_value']],
+                    //          $this->project->target_versions[$action['new_value']],
+                    //     )
+                    //     break;
+                    // case 'assigned_to_id':
+                    //     // todo
+                    //     // only has new_value!
+                    //     // (what if the issue is re-assigned to another person?)
+                    //     // need to have a map of user ids!
+                    //     break;
                     case 'description':
                         return ' - changed the description';
                         break;
