@@ -171,6 +171,16 @@ class Journal
                     ' - changed estimated hours from %d to %d',
                 ];
                 break;
+            case 'tracker_id':
+                $formats = [
+                    null,
+                    ' - changed the task type from "%s" to "%s"',
+                ];
+                $action = $this->convert(
+                    $action,
+                    'getTrackerById'
+                );
+                break;
             case 'status_id':
                 $formats = [
                     ' - set task status to %s',
@@ -216,6 +226,10 @@ class Journal
                     ' - assigned the task to %s',
                     ' - changed the assignee from %s to %s',
                 ];
+                $action = $this->convert(
+                    $action,
+                    ''
+                );
                 break;
             case 'description':
                 return ' - changed the description';

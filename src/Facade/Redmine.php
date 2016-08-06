@@ -180,12 +180,12 @@ class Redmine
 
     public function getPriorityById($id)
     {
-        if (!isset($this->redmine_priorities) || empty($this->redmine_priorities)) {
-            $this->redmine_priorities = array_flip(
+        if (!isset($this->priorities) || empty($this->priorities)) {
+            $this->priorities = array_flip(
                 $this->redmine->issue_priority->listing()
             );
         }
-        return array_key_exists($id, $this->redmine_priorities) ? $this->redmine_priorities[$id] : null;
+        return array_key_exists($id, $this->priorities) ? $this->priorities[$id] : null;
     }
 
 
@@ -199,6 +199,16 @@ class Redmine
         var_dump($this->versions); exit;
         // Might have to ->show($id) on a version to get what we need
         return array_key_exists($id, $this->versions[$project_id]) ? $this->versions[$project_id][$id] : null;
+    }
+
+    public function getTrackerById($id)
+    {
+        if (!isset($this->trackers) || empty($this->trackers)) {
+            $this->trackers = array_flip(
+                $this->redmine->tracker->listing()
+            );
+        }
+        return array_key_exists($id, $this->trackers) ? $this->trackers[$id] : null;
     }
 
 }
