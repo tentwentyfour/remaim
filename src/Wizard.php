@@ -17,17 +17,18 @@
 
 namespace Ttf\Remaim;
 
-use Redmine\Client;
+use Pimple\Container;
 use Redmine\Api\Issue;
 
 use Ttf\Remaim\Exception\NoIssuesFoundException;
 
 class Wizard
 {
-    use Traits\Transactions;
-    use Traits\FileManager;
     use Traits\Phabricator;
     use Traits\Redmine;
+    use Traits\Transactions;
+    use Traits\JournalParser;
+    use Traits\FileManager;
 
     private $phabricator_users = [];
     private $config;
@@ -35,7 +36,6 @@ class Wizard
     private $conduit;
     private $priority_map;
     private $status_map;
-    private $custom_fields;
 
     /**
      * Initialize Migration Wizard
@@ -44,17 +44,14 @@ class Wizard
      * @param \Redmine\Client $redmine Instance of the Redmine API Client
      * @param \ConduitClient  $conduit Instance of ConduitClient
      */
-    public function __construct(array $config, Client $redmine, $conduit)
+    public function __construct(Container $c)
     {
-        $this->config = $config;
-        $this->redmine = $redmine;
-        $this->conduit = $conduit;
+        $this->container = $c;
+        $this->config = $c['config'];
+        $this->conduit = $c['conduit'];
         $this->priority_map = $config['priority_map'];
         try {
             $this->status_map = $this->fetchPhabricatorStati();
-            $this->custom_fields = array_flip(
-                $this->redmine->custom_fields->listing()
-            );
         } catch (\HTTPFutureCURLResponseStatus $e) {
             fwrite(
                 STDERR,

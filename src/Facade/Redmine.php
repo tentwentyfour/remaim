@@ -3,8 +3,8 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.1.1 Short Circuit
- * @since    0.0.1 First public release
+ * @version  0.2.0
+ * @since    0.2.0
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
  * @author  David Raison <david@tentwentyfour.lu>
@@ -16,12 +16,24 @@
  *
  */
 
-namespace Ttf\Remaim\Traits;
+namespace Ttf\Remaim\Facade;
+
+use Redmine\Client;
 
 use Ttf\Remaim\Exception\NoIssuesFoundException;
 
-trait Redmine
+class Redmine
 {
+    private $users;
+    private $custom_fields;
+    private $issue_stati;
+    private $priorities;
+    private $versions;
+
+    public function __construct(Client $client) {
+        $this->redmine = $client;
+    }
+
     /**
      * Can we find another, simpler method for checking connection than this?
      * Unfortunately, the Client does not have a way of checking whether the connection was successful,
@@ -128,7 +140,65 @@ trait Redmine
      */
     public function getRedmineUserById($id)
     {
-        // var_dump($this->redmine->user->show($id));
+        if (!array_key_exists($id, $this->users)) {
+            $this->users[$id] = $this->redmine->user->show($id);
+        }
+        return $this->users[$id];
+    }
+
+    /**
+     * Fetch Redmine status name by its ID
+     *
+     * @return string   Status name
+     */
+    public function getStatusById($id)
+    {
+        if (!isset($this->issue_stati) || empty($this->issue_stati)) {
+            $this->issue_stati = array_flip(
+                $this->redmine->issue_status->listing()
+            );
+        }
+        return array_key_exists($id, $this->issue_stati) ? $this->issue_stati[$id] : null;
+    }
+
+    /**
+     * Look up a custom field by its Id
+     *
+     * @param  int $id  Custom field Id
+     *
+     * @return string   Custom field name
+     */
+    public function getCustomFieldById($id)
+    {
+        if (!isset($this->custom_fields) || empty($this->custom_fields)) {
+            $this->custom_fields = array_flip(
+                $this->redmine->custom_field->listing()
+            );
+        }
+        return array_key_exists($id, $this->custom_fields) ? $this->custom_fields[$id] : null;
+    }
+
+    public function getPriorityById($id)
+    {
+        if (!isset($this->redmine_priorities) || empty($this->redmine_priorities)) {
+            $this->redmine_priorities = array_flip(
+                $this->redmine->issue_priority->listing()
+            );
+        }
+        return array_key_exists($id, $this->redmine_priorities) ? $this->redmine_priorities[$id] : null;
+    }
+
+
+    public function getVersionById($project_id, $id)
+    {
+        if (!isset($this->versions[$project_id]) || empty($this->versions[$project_id])) {
+            $this->versions[$project_id] = array_flip(
+                $this->redmine->version->listing($project_id)
+            );
+        }
+        var_dump($this->versions); exit;
+        // Might have to ->show($id) on a version to get what we need
+        return array_key_exists($id, $this->versions[$project_id]) ? $this->versions[$project_id][$id] : null;
     }
 
 }

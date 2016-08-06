@@ -21,28 +21,54 @@
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
 
-use Ttf\Remaim\Wizard;
-
+use Pimple\Container;
 use Redmine\Client;
 
 use Symfony\Component\Yaml\Parser;
 use Symfony\Component\Yaml\Exception\ParseException;
 
+use Ttf\Remaim\Wizard;
+use Ttf\Remaim\Facade\Redmine as RedmineFacade;
+
 try {
+    $container = new Container();
     $yaml = new Parser();
-    $config = $yaml->parse(file_get_contents(__DIR__ . '/../remaim.yml'));
+    $container['config'] = $yaml->parse(file_get_contents(__DIR__ . '/../remaim.yml'));
 } catch (ParseException $e) {
-    printf("Unable to parse the YAML string: %s", $e->getMessage());
+    printf(
+        'Unable to parse the YAML string: %s',
+        $e->getMessage()
+    );
+    exit(1);
 }
 
-$redmine = new Client(
-    $config['redmine']['host'],
-    $config['redmine']['user'],
-    $config['redmine']['password']
-);
+/**
+ * Services
+ */
+$container['redmine_client'] = function ($c) {
+    return new Client(
+        $c['config']['redmine']['host'],
+        $c['config']['redmine']['user'],
+        $c['config']['redmine']['password']
+    );
+};
 
-$conduit = new \ConduitClient($config['phabricator']['host']);
-$conduit->setConduitToken($config['phabricator']['token']);
+$container['redmine'] = function ($c) {
+    return new RedmineFacade($c['redmine_client']);
+}
 
-$wizard = new Wizard($config, $redmine, $conduit);
+$container['conduit'] = function ($c) {
+    $conduit = new \ConduitClient($c['config']['phabricator']['host']);
+    $conduit->setConduitToken($c['config']['phabricator']['token']);
+    return $conduit;
+};
+
+/**
+ * Service factories
+ */
+$container['journal'] = $container->factory(function ($c, $entry) {
+    return new Journal($c, $entry);
+});
+
+$wizard = new Wizard($container);
 $wizard->run();
