@@ -230,7 +230,7 @@ trait Phabricator
     {
         $tasks = [];
         if (!empty($issue['description'])) {
-            $issue['description'] = $this->convertFromRedmine($issue['description']);
+            $issue['description'] = $this->textileToMarkdown($issue['description']);
             $tasks = $this->conduit->callMethodSynchronous(
                 'maniphest.query',
                 [

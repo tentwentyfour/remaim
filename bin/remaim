@@ -28,6 +28,7 @@ use Symfony\Component\Yaml\Parser;
 use Symfony\Component\Yaml\Exception\ParseException;
 
 use Ttf\Remaim\Wizard;
+use Ttf\Remaim\Journal;
 use Ttf\Remaim\Facade\Redmine as RedmineFacade;
 
 try {
@@ -55,7 +56,7 @@ $container['redmine_client'] = function ($c) {
 
 $container['redmine'] = function ($c) {
     return new RedmineFacade($c['redmine_client']);
-}
+};
 
 $container['conduit'] = function ($c) {
     $conduit = new \ConduitClient($c['config']['phabricator']['host']);
@@ -66,8 +67,8 @@ $container['conduit'] = function ($c) {
 /**
  * Service factories
  */
-$container['journal'] = $container->factory(function ($c, $entry) {
-    return new Journal($c, $entry);
+$container['journal'] = $container->factory(function ($c) {
+    return new Journal($c);
 });
 
 $wizard = new Wizard($container);

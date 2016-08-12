@@ -25,10 +25,10 @@ use Ttf\Remaim\Exception\NoIssuesFoundException;
 class Wizard
 {
     use Traits\Phabricator;
-    use Traits\Redmine;
     use Traits\Transactions;
-    use Traits\JournalParser;
     use Traits\FileManager;
+    use Traits\ProjectList;
+    use Traits\MarkupConverter;
 
     private $phabricator_users = [];
     private $config;
@@ -36,6 +36,7 @@ class Wizard
     private $conduit;
     private $priority_map;
     private $status_map;
+    private $redmine_project;
 
     /**
      * Initialize Migration Wizard
@@ -49,7 +50,8 @@ class Wizard
         $this->container = $c;
         $this->config = $c['config'];
         $this->conduit = $c['conduit'];
-        $this->priority_map = $config['priority_map'];
+        $this->redmine = $c['redmine'];
+        $this->priority_map = $this->config['priority_map'];
         try {
             $this->status_map = $this->fetchPhabricatorStati();
         } catch (\HTTPFutureCURLResponseStatus $e) {
@@ -72,10 +74,38 @@ class Wizard
      */
     public function run()
     {
+        print(
+            " __      __          ___
+/\ \  __/\ \        /\_ \
+\ \ \/\ \ \ \     __\//\ \     ___    ___     ___ ___      __
+ \ \ \ \ \ \ \  /'__`\\ \ \   /'___\ / __`\ /' __` __`\  /'__`\
+  \ \ \_/ \_\ \/\  __/ \_\ \_/\ \__//\ \L\ \/\ \/\ \/\ \/\  __/
+   \ `\___x___/\ \____\/\____\ \____\ \____/\ \_\ \_\ \_\ \____\
+    '\/__//__/  \/____/\/____/\/____/\/___/  \/_/\/_/\/_/\/____/
+
+
+ __               ____                                                 __
+/\ \__           /\  _`\                                __            /\ \
+\ \ ,_\   ___    \ \ \L\ \     __    ___ ___      __   /\_\    ___ ___\ \ \
+ \ \ \/  / __`\   \ \ ,  /   /'__`\/' __` __`\  /'__`\ \/\ \ /' __` __`\ \ \
+  \ \ \_/\ \L\ \   \ \ \\ \ /\  __//\ \/\ \/\ \/\ \L\.\_\ \ \/\ \/\ \/\ \ \_\
+   \ \__\ \____/    \ \_\ \_\ \____\ \_\ \_\ \_\ \__/.\_\\ \_\ \_\ \_\ \_\/\_\
+    \/__/\/___/      \/_/\/ /\/____/\/_/\/_/\/_/\/__/\/_/ \/_/\/_/\/_/\/_/\/_/
+                                                                              "
+
+            . PHP_EOL
+        );
         try {
-            $this->assertConnectionToRedmine();
-            $redmine_project = $this->selectProject($this->listRedmineProjects());
-            $tasks = $this->getIssuesForProject($redmine_project);
+            $this->redmine->assertConnectionToRedmine();
+            print(
+                'Stand by while we are retrieving a list of projects from your Redmine instance...' . PHP_EOL
+            );
+            $redmine_project = $this->redmine->show(
+                $this->selectProject($this->redmine->listProjects())
+            );
+            $this->redmine_project = $redmine_project;
+
+            $tasks = $this->redmine->getIssuesForProject($redmine_project);
 
             $phabricator_project = $this->selectOrCreatePhabricatorProject(
                 $redmine_project
@@ -145,7 +175,7 @@ class Wizard
         $tasks,
         $policies
     ) {
-        $project_detail = $this->redmine->project->show($redmine_project);
+        $project_detail = $this->redmine->getProjectDetails($redmine_project);
 
         printf(
             PHP_EOL . PHP_EOL .
@@ -326,54 +356,6 @@ class Wizard
     }
 
     /**
-     * Recursive function to build a tree structure from
-     * the projects' parent > child relationships.
-     *
-     * @param  array  &$projects  List of projects to be put into a tree structure
-     * @param  integer $parent    Subject of the current iteration of the function run
-     *
-     * @return array              Tree structure of projects
-     */
-    public function buildProjectTree(&$projects, $parent = 0)
-    {
-        $tmp_array = [];
-        foreach ($projects as $project) {
-            if ($project['parent']['id'] == $parent) {
-                $project['children'] = $this->buildProjectTree($projects, $project['id']);
-                $tmp_array[] = $project;
-            }
-        }
-        usort($tmp_array, function ($a, $b) {
-            return $a['id'] > $b['id'];
-        });
-        return $tmp_array;
-    }
-
-    /**
-     * Visually represents project structure
-     *
-     * @param  Array  $project  Single project array
-     * @param  integer $level   Level of hierarchy-depth
-     *
-     * @return String           Returns a visual representation of the structure of $project
-     */
-    public function representProject($project, $level = 0)
-    {
-        $string = sprintf(
-            "[%d – %s]\n",
-            $project['id'],
-            $project['name']
-        );
-        if (!empty($project['children'])) {
-            $indent = implode('', array_pad([], ++$level, "\t"));
-            foreach ($project['children'] as $project) {
-                $string .= sprintf("%s└–––––––– %s", $indent, $this->representProject($project, $level));
-            }
-        }
-        return $string;
-    }
-
-    /**
      * Asks the user to select one of the listed projects.
      *
      * @param  array $projects List of projects and total count retrieved
@@ -459,18 +441,7 @@ class Wizard
         $policies
     ) {
         return array_map(function ($issue) use ($ph_project, $policies) {
-            $details = $this->redmine->issue->show(
-                $issue['id'],
-                [
-                    'include' => [
-                        'children',
-                        'attachments',
-                        'relations',
-                        'watchers',
-                        'journals',
-                    ]
-                ]
-            );
+            $details = $this->redmine->getIssueDetail($issue['id']);
 
             $owner = $this->grabOwnerPhid($details['issue']);
 

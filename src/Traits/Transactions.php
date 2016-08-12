@@ -153,7 +153,7 @@ trait Transactions
         $transactions = [];
         foreach ($issue['journals'] as $entry) {
             $journal = $this->container['journal'];
-            $comment = $journal->transform($entry);
+            $comment = $journal->transform($entry, $this->redmine_project);
 
             $transactions[] = [
                 'type' => 'comment',
@@ -177,7 +177,7 @@ trait Transactions
 
         if (!array_key_exists($status, $this->status_map)) {
             printf(
-                'We could not find a matching key for the status "%s"!' . "\n",
+                'I was unable to find a matching key for the status "%s"!' . "\n",
                 $status
             );
 
@@ -191,7 +191,7 @@ trait Transactions
                 );
             }
 
-            $selected = $this->prompt('Select a status to use');
+            $selected = $this->prompt('Please indicate which status to use');
             $values = array_values($this->status_map);
             if (array_key_exists($selected, $values)) { // if $select < sizeof($values)
                 $this->status_map[$status] = $values[$selected];
@@ -219,7 +219,7 @@ trait Transactions
      */
     public function createDescriptionTransaction($issue, $policies, $task = null)
     {
-        $description = isset($issue['description']) ? $this->convertFromRedmine($issue['description']) : '';
+        $description = isset($issue['description']) ? $this->textileToMarkdown($issue['description']) : '';
         $file_ids = $this->uploadFiles($issue, $policies['view']);
 
         if (empty($file_ids)

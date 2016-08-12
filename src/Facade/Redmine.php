@@ -24,13 +24,19 @@ use Ttf\Remaim\Exception\NoIssuesFoundException;
 
 class Redmine
 {
-    private $users;
-    private $custom_fields;
-    private $issue_stati;
-    private $priorities;
-    private $versions;
+    use \Ttf\Remaim\Traits\ProjectList;
 
-    public function __construct(Client $client) {
+
+    private $custom_fields = [];
+    private $issue_stati = [];
+    private $issue_categories = [];
+    private $priorities = [];
+    private $versions = [];
+    private $projects = [];
+    private $users = [];
+
+    public function __construct(Client $client)
+    {
         $this->redmine = $client;
     }
 
@@ -58,7 +64,7 @@ class Redmine
      *
      * @return Array A tree structure of all projects on the redmine platform
      */
-    public function listRedmineProjects()
+    public function listProjects()
     {
         $reply = $this->redmine->project->all(['limit' => 1024]);
         $ids = array_column($reply['projects'], 'id');
@@ -87,9 +93,64 @@ class Redmine
     }
 
     /**
+     * Show details of a redmine project after having selected it from a list.
+     *
+     * @param  Integer $project_id Integer ID of the selected project
+     *
+     * @return Integer          Same ID
+     */
+    public function show($project_id)
+    {
+        if ($project_id) {
+            $result = $this->getProjectDetails($project_id);
+            printf(
+                'Found project "%s"' . PHP_EOL . PHP_EOL,
+                $result['project']['name']
+            );
+            return $project_id;
+        }
+    }
+
+    /**
+     * Simply a memory-caching wrapper around the redmine api
+     *
+     * @param  Integer $project_id  ID of project to look up
+     *
+     * @return Array            Details about $project_id
+     */
+    public function getProjectDetails($project_id)
+    {
+        if (!array_key_exists($project_id, $this->projects)) {
+            $this->projects[$project_id] = $this->redmine->project->show($project_id);
+        }
+        return $this->projects[$project_id];
+    }
+
+    /**
+     * Get details on an issue, including journal, attachments, children, watchers, etc
+     *
+     * @return array Details about this issue
+     */
+    public function getIssueDetail($issue_id)
+    {
+        return $this->redmine->issue->show(
+            $issue_id,
+            [
+                'include' => [
+                    'children',
+                    'attachments',
+                    'relations',
+                    'watchers',
+                    'journals',
+                ]
+            ]
+        );
+    }
+
+    /**
      * Retrieve all Issues for a given Redmine project
      *
-     * @param  Integer $project_id The redmine project ID
+     * @param  Integer $project_id The Redmine project ID
      *
      * @return array                A list of issues that should be migrated
      */
@@ -118,7 +179,7 @@ class Redmine
      *
      * @return array                A list of all members of Redmine project $project_id
      */
-    public function getRedmineProjectMembers($project_id)
+    public function getProjectMembers($project_id)
     {
         $memberships = $this->redmine->membership->all($project_id);
 
@@ -138,7 +199,7 @@ class Redmine
      * @param  [type] $id [description]
      * @return [type]     [description]
      */
-    public function getRedmineUserById($id)
+    public function getUserById($id)
     {
         if (!array_key_exists($id, $this->users)) {
             $this->users[$id] = $this->redmine->user->show($id);
@@ -172,7 +233,7 @@ class Redmine
     {
         if (!isset($this->custom_fields) || empty($this->custom_fields)) {
             $this->custom_fields = array_flip(
-                $this->redmine->custom_field->listing()
+                $this->redmine->custom_fields->listing()
             );
         }
         return array_key_exists($id, $this->custom_fields) ? $this->custom_fields[$id] : null;
@@ -181,24 +242,33 @@ class Redmine
     public function getPriorityById($id)
     {
         if (!isset($this->priorities) || empty($this->priorities)) {
-            $this->priorities = array_flip(
-                $this->redmine->issue_priority->listing()
-            );
+            $priorities = $this->redmine->issue_priority->all();
+            foreach ($priorities['issue_priorities'] as $priority) {
+                $this->priorities[$priority['id']] = $priority['name'];
+            }
         }
         return array_key_exists($id, $this->priorities) ? $this->priorities[$id] : null;
     }
 
 
-    public function getVersionById($project_id, $id)
+    public function getVersionById($id, $project_id)
     {
         if (!isset($this->versions[$project_id]) || empty($this->versions[$project_id])) {
             $this->versions[$project_id] = array_flip(
                 $this->redmine->version->listing($project_id)
             );
         }
-        var_dump($this->versions); exit;
-        // Might have to ->show($id) on a version to get what we need
         return array_key_exists($id, $this->versions[$project_id]) ? $this->versions[$project_id][$id] : null;
+    }
+
+    public function getCategoryById($id, $project_id)
+    {
+        if (!isset($this->issue_categories[$project_id]) || empty($this->issue_categories[$project_id])) {
+            $this->issue_categories[$project_id] = array_flip(
+                $this->redmine->issue_category->listing($project_id)
+            );
+        }
+        return array_key_exists($id, $this->issue_categories[$project_id]) ? $this->issue_categories[$project_id][$id] : null;
     }
 
     public function getTrackerById($id)
@@ -210,5 +280,4 @@ class Redmine
         }
         return array_key_exists($id, $this->trackers) ? $this->trackers[$id] : null;
     }
-
 }

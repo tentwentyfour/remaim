@@ -22,8 +22,11 @@ use Pimple\Container;
 
 class Journal
 {
+    use Traits\MarkupConverter;
 
-    public function __contruct(Container $c)
+    private $container;
+
+    public function __construct(Container $c)
     {
         $this->container = $c;
     }
@@ -36,7 +39,7 @@ class Journal
      *
      * @return String         Maniphest comment
      */
-    public function transform(array $entry)
+    public function transform(array $entry, $project_id)
     {
         if ((!isset($entry['notes']) || empty($entry['notes']))
             && (!isset($entry['details']) || empty($entry['details']))
@@ -46,58 +49,32 @@ class Journal
 
         $timestamp = strtotime($entry['created_on']);
         $comment = sprintf(
-            "On %s, %s wrote:\n %s",
-            date('l, F jS Y H:i:s', $timestamp),
-            $entry['user']['name'],
-            $this->convertToQuote(
-                $this->convertFromRedmine($entry['notes'])
-            )
-        );
+                'On %s, %s',
+                date('l, F jS Y H:i:s', $timestamp),
+                $entry['user']['name']
+            );
+
+        if (!empty($entry['notes'])) {
+            $comment .= sprintf(
+                ' wrote:' . PHP_EOL
+                . '%s',
+                $this->convertToQuote(
+                    $this->textileToMarkdown($entry['notes'])
+                )
+            );
+        }
+
+        if (!empty($entry['notes']) && !empty($entry['details'])) {
+            $comment .= PHP_EOL . 'and:';
+        }
 
         if (!empty($entry['details'])) {
-            $comment .= PHP_EOL . 'and:' . PHP_EOL . implode(
+            $comment .= PHP_EOL . implode(
                 PHP_EOL,
-                $this->recountStory($entry['details'])
+                $this->recountStory($entry['details'], $project_id)
             );
         }
         return $comment;
-    }
-
-    /**
-     * Tries to detect whether the content in Redmine is using textile or markdown
-     * and then converts some markup (if textile) or just passes it on.
-     *
-     * This is a really naive and inefficient approach which could be improved.
-     *
-     * @todo Support external links
-     *
-     * @param  String $text Input text
-     *
-     * @return String Converted text
-     */
-    public function convertFromRedmine($text)
-    {
-        return str_replace(
-            ["\r", 'h1.', 'h2.', 'h3.', 'h4.', '<pre>', '</pre>', '@', '*', '_'],
-            ['', '#', '##', '###', '####', '```', '```', '`', '**', '//'],
-            trim($text)
-        );
-    }
-
-    /**
-     * Convert some text into a "quote" by prefixing it with "> "
-     * and replacing subsequent newlines with "> ".
-     *
-     * @param  string $text Original text to be transformed into a quote
-     *
-     * @return string       Quoted text
-     */
-    public function convertToQuote($text)
-    {
-        return sprintf(
-            '> %s',
-            preg_replace("/[\n\r]/", "\n> ", $text)
-        );
     }
 
     /**
@@ -107,23 +84,23 @@ class Journal
      *
      * @return array            Parsed, verbose action story
      */
-    public function recountStory($details)
+    public function recountStory($details, $project_id)
     {
-        return array_map(function ($action) {
+        return array_map(function ($action) use ($project_id) {
             if ($action['property'] === 'attr') {
-                return $this->parseAttributeAction($action);
+                return $this->parseAttributeAction($action, $project_id);
             } elseif ($action['property'] === 'cf') {
                 if (isset($action['old_value']) && !empty($action['old_value'])) {
                     return sprintf(
                         ' - changed "%s" from "%s" to "%s"',
-                        $this->custom_fields[$action['name']],
+                        $this->getCustomField($action['name']),
                         $action['old_value'],
                         $action['new_value']
                     );
                 } else {
                     return sprintf(
                         ' - set "%s" to "%s"',
-                        $this->custom_fields[$action['name']],
+                        $this->getCustomField($action['name']),
                         $action['new_value']
                     );
                 }
@@ -133,26 +110,15 @@ class Journal
     }
 
     /**
-     * Determine whether this journal action is a value newly set
-     * or a change from a previous values.
+     * Retrieve the name of a custom field from the Redmine API
      *
-     * @param  array  $action Action to analyse
+     * @param  Integer $id  Custom field ID
      *
-     * @return boolean        Whether the action is modifying an existing value.
+     * @return String       Custom field description
      */
-    private function isModification($action)
+    public function getCustomField($id)
     {
-        return isset($action['old_value']) && !empty($action['old_value']);
-    }
-
-    private function representChange($action, $format)
-    {
-        return sprintf($format, $action['old_value'], $action['new_value']);
-    }
-
-    private function representInitial($action, $format)
-    {
-        return sprintf($format, $action['new_value']);
+        return $this->container['redmine']->getCustomFieldById($id);
     }
 
     /**
@@ -162,9 +128,15 @@ class Journal
      *
      * @return String        Textual representation of the action
      */
-    public function parseAttributeAction($action)
+    public function parseAttributeAction($action, $project_id)
     {
         switch ($action['name']) {
+            case 'due_date':
+                $formats = [
+                    ' - set due date to %s',
+                    ' - changed due date from %s to %s',
+                ];
+                break;
             case 'estimated_hours':
                 $formats = [
                     ' - set estimated hours to %d',
@@ -210,6 +182,18 @@ class Journal
                     'getPriorityById'
                 );
                 break;
+            case 'category_id':
+                $formats = [
+                    ' - set category to "%s"',
+                    ' - changed category from "%s" to "%s"',
+                ];
+                $action = $this->convert(
+                    $action,
+                    'getCategoryById',
+                    null,
+                    [$project_id]
+                );
+                break;
             case 'fixed_version_id':
                 $formats = [
                     ' - set target version to "%s"',
@@ -218,21 +202,30 @@ class Journal
                 $action = $this->convert(
                     $action,
                     'getVersionById',
-                    [$this->project_id]
+                    null,
+                    [$project_id]
                 );
                 break;
             case 'assigned_to_id':
                 $formats = [
                     ' - assigned the task to %s',
                     ' - changed the assignee from %s to %s',
+                    ' - unassigned %s',
                 ];
                 $action = $this->convert(
                     $action,
-                    ''
+                    'getUserById',
+                    function ($value) {
+                        return sprintf(
+                            '%s %s',
+                            $value['user']['firstname'],
+                            $value['user']['lastname']
+                        );
+                    }
                 );
                 break;
             case 'description':
-                return ' - changed the description';
+                return ' - edited the description';
                 break;
             case 'subject':
                 return sprintf(
@@ -256,28 +249,82 @@ class Journal
         if ($this->isModification($action)) {
             return $this->representChange(
                 $action,
-                $format[1]
+                $formats[1]
             );
-        } else {
+        } elseif ($this->isInitial($action)) {
             return $this->representInitial(
                 $action,
-                $format[0]
+                $formats[0]
+            );
+        } else {
+            return $this->representRemoval(
+                $action,
+                $formats[2]
             );
         }
     }
 
     /**
-     * [convert description]
-     * @param  [type] $action    [description]
-     * @param  [type] $converter [description]
-     * @return [type]            [description]
+     * Determine whether this journal action is a value newly set
+     * or a change from a previous values.
+     *
+     * @param  array  $action Action to analyse
+     *
+     * @return boolean        Whether the action is modifying an existing value.
      */
-    public function convert($action, $converter, $params = [])
+    private function isModification($action)
     {
-        array_unshift($params, $action);
-        return call_user_func_array(
-            [$this->container['redmine'], $converter],
-            $params
-        );
+        return isset($action['old_value'])
+        && !empty($action['old_value'])
+        && isset($action['new_value'])
+        && !empty($action['new_value']);
+    }
+
+    private function isInitial($action)
+    {
+        return isset($action['new_value']) && !empty($action['new_value']);
+    }
+
+    private function representChange($action, $format)
+    {
+        return sprintf($format, $action['old_value'], $action['new_value']);
+    }
+
+    private function representInitial($action, $format)
+    {
+        return sprintf($format, $action['new_value']);
+    }
+
+    private function representRemoval($action, $format)
+    {
+        return sprintf($format, $action['old_value']);
+    }
+
+    /**
+     * Converts IDs into entities by using the specified methods.
+     *
+     * @todo  use array_filter and array_map or array_reduce
+     *
+     * @param  array $action    Array containing data to be converted
+     * @param  String $converter Method to use for conversion
+     *
+     * @return
+     */
+    public function convert($action, $converter, $modifier = null, $params = [])
+    {
+        $ident = function ($var) { return $var; };
+        $modifier = (null === $modifier) ? $ident : $modifier;
+        foreach (['old_value', 'new_value'] as $key) {
+            if (isset($action[$key])) {
+                array_unshift($params, $action[$key]);
+                $action[$key] = $modifier(
+                    call_user_func_array(
+                        [$this->container['redmine'], $converter],
+                        $params
+                    )
+                );
+            }
+        }
+        return $action;
     }
 }
