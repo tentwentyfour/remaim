@@ -72,7 +72,7 @@ class Wizard
      *
      * @return void
      */
-    public function run()
+    public function run($resume = false)
     {
         print(
             " __      __          ___
@@ -123,7 +123,8 @@ class Wizard
             $results = $this->migrateIssues(
                 $tasks['issues'],
                 $phabricator_project,
-                $policies
+                $policies,
+                $resume
             );
             printf(
                 '%d tickets successfully migrated or updated!' . PHP_EOL,
@@ -438,18 +439,18 @@ class Wizard
     public function migrateIssues(
         $issues,
         $ph_project,
-        $policies
+        $policies,
+        $resume = false
     ) {
-        return array_map(function ($issue) use ($ph_project, $policies) {
+        return array_map(function ($issue) use ($ph_project, $policies, $resume) {
             $details = $this->redmine->getIssueDetail($issue['id']);
-
             $owner = $this->grabOwnerPhid($details['issue']);
-
             return $this->createManiphestTask(
                 $details['issue'],
                 $owner,
                 $ph_project['phid'],
-                $policies
+                $policies,
+                $resume
             );
         }, $issues);
     }
@@ -463,6 +464,7 @@ class Wizard
      * @param  string $owner        PHID identifying a potential task assignee
      * @param  string $project_phid PHID identifying a project in Phabricator
      * @param  array  $policies     List of policies to apply to the task
+     * @param  bool   $resume       Whether we wish to resume a previous run and ignore already existing tasks
      *
      * @return array                Details of maniphest.edit operation
      */
@@ -470,9 +472,14 @@ class Wizard
         $issue,
         $owner,
         $project_phid,
-        $policies
+        $policies,
+        $resume = false
     ) {
-        $task = $this->findExistingTask($issue, $project_phid);
+        $task = $this->findExistingTask($issue, $project_phid, $resume);
+
+        if ($resume && false === $task) {
+            return;
+        }
 
         $transactions = $this->assembleTransactionsFor(
             $project_phid,

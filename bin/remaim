@@ -32,6 +32,13 @@ use Ttf\Remaim\Journal;
 use Ttf\Remaim\Facade\Redmine as RedmineFacade;
 
 try {
+    $resume = false;
+    $options = getopt('r', ['resume']);
+    if (!empty($options)
+        && (isset($options['r']) || isset($options['resume']))
+    ) {
+        $resume = true;
+    }
     $container = new Container();
     $yaml = new Parser();
     $container['config'] = $yaml->parse(file_get_contents(__DIR__ . '/../remaim.yml'));
@@ -72,4 +79,4 @@ $container['journal'] = $container->factory(function ($c) {
 });
 
 $wizard = new Wizard($container);
-$wizard->run();
+$wizard->run($resume);

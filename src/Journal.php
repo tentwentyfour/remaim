@@ -257,6 +257,9 @@ class Journal
                 $formats[0]
             );
         } else {
+            if (!isset($formats[2])) {
+                printf('Encountered unknown attribute action: %s', serialize($action));
+            }
             return $this->representRemoval(
                 $action,
                 $formats[2]

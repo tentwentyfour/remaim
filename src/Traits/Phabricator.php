@@ -226,7 +226,7 @@ trait Phabricator
      * @param  array $issue Redmine issue description
      * @return array        [description]
      */
-    public function findExistingTask($issue, $project_phid)
+    public function findExistingTask($issue, $project_phid, $resume = false)
     {
         $tasks = [];
         if (!empty($issue['description'])) {
@@ -241,7 +241,9 @@ trait Phabricator
         }
 
         $num_found = sizeof($tasks);
-        if (!empty($tasks) && $num_found > 1) {
+        if ($resume && !empty($tasks) && $num_found > 1) {
+            return false;
+        } elseif (!empty($tasks) && $num_found > 1) {
             print(
                 'Oops, I found more than one already existing task in phabricator.'
                 . PHP_EOL
