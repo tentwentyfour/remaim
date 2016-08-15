@@ -255,7 +255,7 @@ class Wizard
                 $policies = $this->definePolicies($this->lookupGroupProjects());
                 $detail = $this->redmine->getProjectDetails($redmine_project);
                 $phab_members = $this->getPhabricatorUserPhid(
-                    $this->getRedmineProjectMembers($redmine_project)
+                    $this->redmine->getProjectMembers($redmine_project)
                 );
                 $project = $this->createNewPhabricatorProject(
                     $detail,
