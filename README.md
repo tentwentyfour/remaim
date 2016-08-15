@@ -7,7 +7,7 @@ Dependencies
 ------------
 
 You will need to have a copy of Phabricator's libphutil in your path.
-We assume that you have installed arcanist via your package manager and that
+We assume that you have installed it (or arcanist) via your package manager and that
 libphutil sits in /usr/share/libphutil.
 
 If such is not the case, you will have to adapt the path inside lib/Wizard.php

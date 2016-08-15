@@ -1,4 +1,4 @@
-/vendor/
+vendor/
 remaim.yml
 build/
 .arcconfig

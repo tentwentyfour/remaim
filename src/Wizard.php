@@ -96,7 +96,15 @@ class Wizard
             . PHP_EOL
         );
         try {
+            if ($resume) {
+                print(
+                    'You have selected RESUME mode.' . PHP_EOL .
+                    'Tell me, why exactly did you have to leave in a hurry and abort the previous run?' . PHP_EOL . PHP_EOL
+                );
+            }
+            print('Attempting to connect to good ol\' Redmine... ');
             $this->redmine->assertConnectionToRedmine();
+            print('success!' . PHP_EOL);
             print(
                 'Stand by while we are retrieving a list of projects from your Redmine instance...' . PHP_EOL
             );
@@ -208,30 +216,6 @@ class Wizard
         return true;
     }
 
-    /**
-     * Prompt the user to indicate which phabricator project they would like
-     * to migrate their redmine issues to.
-     *
-     * @param  Integer $project_id Redmine project ID
-     *
-     * @return array    Phabricator project details
-     */
-    public function selectOrCreatePhabricatorProject($project_id)
-    {
-        return $this->actOnChoice(
-            $this->prompt(
-                'Please enter the id or slug of the project in Phabricator if you know it.'
-                . PHP_EOL
-                . 'Press' . PHP_EOL
-                . '[Enter] to see a list of available projects in Phabricator,'
-                . PHP_EOL
-                . '[0] to create a new project from the Redmine project\'s details or'
-                . PHP_EOL
-                . '[q] to quit and abort'
-            ),
-            $project_id
-        );
-    }
 
     /**
      * Act on the choice that was made during selectOrCreatePhabricatorProject()
@@ -269,7 +253,7 @@ class Wizard
                 break;
             case '0':
                 $policies = $this->definePolicies($this->lookupGroupProjects());
-                $detail = $this->redmine->project->show($redmine_project);
+                $detail = $this->redmine->getProjectDetails($redmine_project);
                 $phab_members = $this->getPhabricatorUserPhid(
                     $this->getRedmineProjectMembers($redmine_project)
                 );
@@ -339,7 +323,7 @@ class Wizard
         $i = 0;
         foreach ($groups['data'] as $group) {
             printf(
-                "[%d] =>\t[ID]: T%d \n\t[Name]: %s\n",
+                "[%d] =>\t[ID]: %d \n\t[Name]: %s\n",
                 $i++,
                 $group['id'],
                 $group['fields']['name']
@@ -422,7 +406,7 @@ class Wizard
                 $min,
                 $max
             );
-            return $this->selectIndexFromList($message, $max);
+            return $this->selectIndexFromList($message, $max, $min, $allow_empty);
         }
         return $selectedIndex;
     }
@@ -477,9 +461,21 @@ class Wizard
     ) {
         $task = $this->findExistingTask($issue, $project_phid, $resume);
 
-        if ($resume && false === $task) {
+        if (false === $task) {
+            printf(
+                'Skipping existing issue %d - %s' . PHP_EOL,
+                $issue['id'],
+                $issue['subject']
+            );
             return;
         }
+
+        printf(
+            '%s issue %d - "%s"...' . PHP_EOL,
+            !empty($task) ? 'Updating' : 'Migrating',
+            $issue['id'],
+            $issue['subject']
+        );
 
         $transactions = $this->assembleTransactionsFor(
             $project_phid,

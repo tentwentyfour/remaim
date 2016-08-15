@@ -21,12 +21,7 @@ namespace Ttf\Remaim\Traits;
 trait MarkupConverter
 {
     /**
-     * Tries to detect whether the content in Redmine is using textile or markdown
-     * and then converts some markup (if textile) or just passes it on.
-     *
-     * This is a really naive and inefficient approach which could be improved.
-     *
-     * @todo Support external links
+     * Naively converts some textile markup to markdown.
      *
      * @param  String $text Input text
      *
@@ -36,8 +31,18 @@ trait MarkupConverter
     {
         return str_replace(
             ["\r", 'h1.', 'h2.', 'h3.', 'h4.', '<pre>', '</pre>', '@', '*', '_'],
-            ['', '#', '##', '###', '####', '```', '```', '`', '**', '//'],
-            trim($text)
+            ['', '= ', '== ', '=== ', '==== ', '```', '```', '`', '**', '//'],
+            preg_replace(
+                [
+                    '/"(\w+)":(http(?:s?):\/\/(?:\w+.)?\w+.\w+)/mi',
+                    '/(?:^|\s)-(.*)-(?:$|\s)/mi',
+                ],
+                [
+                    '[[$2|$1]]',
+                    '~~$1~~',
+                ],
+                trim($text)
+            )
         );
     }
 

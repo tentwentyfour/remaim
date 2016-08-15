@@ -141,6 +141,7 @@ class Journal
                 $formats = [
                     ' - set estimated hours to %d',
                     ' - changed estimated hours from %d to %d',
+                    ' - removed the time estimation of %d hours',
                 ];
                 break;
             case 'tracker_id':
@@ -167,6 +168,7 @@ class Journal
                 $formats = [
                     ' - set done to %d%%',
                     ' - changed done from %d%% to %d%%',
+                    ' - changed done back from %d%% to 0%%',
                 ];
                 break;
             case 'priority_id':
@@ -198,6 +200,8 @@ class Journal
                 $formats = [
                     ' - set target version to "%s"',
                     ' - changed target version from "%s" to "%s"',
+                    ' - removed target version "%s"',
+                    ' - unset the target version',
                 ];
                 $action = $this->convert(
                     $action,
@@ -252,17 +256,36 @@ class Journal
                 $formats[1]
             );
         } elseif ($this->isInitial($action)) {
-            return $this->representInitial(
+            return $this->representInitialOrUnsetting(
                 $action,
                 $formats[0]
             );
-        } else {
+        } elseif ($this->isRemoval($action)) {
             if (!isset($formats[2])) {
-                printf('Encountered unknown attribute action: %s', serialize($action));
+                printf(
+                    'Encountered attribute action with unknown third case: %s',
+                    serialize($action)
+                );
             }
             return $this->representRemoval(
                 $action,
                 $formats[2]
+            );
+        } elseif ($this->isUnset($action)) {
+            if (!isset($formats[3])) {
+                printf(
+                    'Encountered attribute action with unknown fourth case: %s',
+                    serialize($action)
+                );
+            }
+            return $this->representInitialOrUnsetting(
+                $action,
+                $formats[3]
+            );
+        } else {
+            printf(
+                'Encountered attribute action with unknown case: %s',
+                serialize($action)
             );
         }
     }
@@ -288,16 +311,53 @@ class Journal
         return isset($action['new_value']) && !empty($action['new_value']);
     }
 
+    private function isRemoval($action)
+    {
+        return isset($action['old_value'])
+        && !empty($action['old_value'])
+        && (!isset($action['new_value']) || empty($action['new_value']));
+    }
+
+    private function isUnset($action)
+    {
+        return is_null($action['new_value']);
+    }
+
+    /**
+     * Represents an attribute first being set.
+     *
+     * @param  [type] $action [description]
+     * @param  [type] $format [description]
+     *
+     * @return [type]         [description]
+     */
+    private function representInitialOrUnsetting($action, $format)
+    {
+        return sprintf($format, $action['new_value']);
+    }
+
+    /**
+     * Represents the change of an attribute from an old
+     * to a new value.
+     *
+     * @param  [type] $action [description]
+     * @param  [type] $format [description]
+     *
+     * @return [type]         [description]
+     */
     private function representChange($action, $format)
     {
         return sprintf($format, $action['old_value'], $action['new_value']);
     }
 
-    private function representInitial($action, $format)
-    {
-        return sprintf($format, $action['new_value']);
-    }
-
+    /**
+     * Represents the removal or reset of an attribute
+     *
+     * @param  [type] $action [description]
+     * @param  [type] $format [description]
+     *
+     * @return [type]         [description]
+     */
     private function representRemoval($action, $format)
     {
         return sprintf($format, $action['old_value']);

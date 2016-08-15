@@ -104,7 +104,7 @@ class Redmine
         if ($project_id) {
             $result = $this->getProjectDetails($project_id);
             printf(
-                'Found project "%s"' . PHP_EOL . PHP_EOL,
+                'Found project "%s" on your Redmine instance.' . PHP_EOL . PHP_EOL,
                 $result['project']['name']
             );
             return $project_id;

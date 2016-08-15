@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.1.1 Short Circuit
+ * @version  0.2.0
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -36,7 +36,8 @@ trait Phabricator
 
     /**
      * Retrieves a list of all available (even inactive)
-     * projects on your phabricator instance.
+     * projects on your phabricator instance, then transforms the result
+     * into something we can present using Wizard::selectProject()
      *
      * @return array List of phabricator projects
      */
@@ -64,6 +65,14 @@ trait Phabricator
         }
     }
 
+    /**
+     * Searches phabricator for projects and recurses into itself if there
+     * is a need for pagination.
+     *
+     * @param  integer $after Initial offset of projects
+     *
+     * @return array          Search result
+     */
     public function retrieveAllPhabricatorProjects($after = 0)
     {
         $result = $this->conduit->callMethodSynchronous(
@@ -80,6 +89,33 @@ trait Phabricator
             );
         }
         return $result['data'];
+    }
+
+    /**
+     * Prompt the user to indicate which phabricator project they would like
+     * to migrate their redmine issues to.
+     *
+     * @param  Integer $project_id Redmine project ID
+     *
+     * @return array    Phabricator project details
+     */
+    public function selectOrCreatePhabricatorProject($project_id)
+    {
+        return $this->actOnChoice(
+            $this->prompt(
+                'Now you\'ve got to decide where to put all that stuff... decisions, decisions!'
+                . PHP_EOL
+                . 'Please enter the id or slug of the project in Phabricator if you know it'
+                . PHP_EOL
+                . 'or press' . PHP_EOL
+                . "\t" . '[Enter] to see a list of available projects in Phabricator,'
+                . PHP_EOL
+                . "\t". '[0] to create a new project from the Redmine project\'s details or'
+                . PHP_EOL
+                . "\t". '[q] to quit and abort'
+            ),
+            $project_id
+        );
     }
 
     /**
@@ -221,34 +257,46 @@ trait Phabricator
     }
 
     /**
-     * Finds tasks that have already been imported to phabricator based on their description.
+     * Finds tasks that have already been imported to phabricator based on their description
+     * or, if the description is empty their title.
      *
-     * @param  array $issue Redmine issue description
-     * @return array        [description]
+     *
+     * @param  array $issue  Redmine issue description
+     * @param  bool  $resume Whether this is a resume run or not
+     *
+     * @return array|bool    Can return misc values based on the current mode
      */
     public function findExistingTask($issue, $project_phid, $resume = false)
     {
         $tasks = [];
-        if (!empty($issue['description'])) {
-            $issue['description'] = $this->textileToMarkdown($issue['description']);
+        if (!empty($issue['description']) || !empty($issue['subject'])) {
+            $issue['description'] = !empty($issue['description']) ? $this->textileToMarkdown($issue['description']) : '';
+            $lookup = empty($issue['description']) ? $issue['subject'] : $issue['description'];
             $tasks = $this->conduit->callMethodSynchronous(
                 'maniphest.query',
                 [
                     'projectPHIDs' => [$project_phid],
-                    'fullText' => $issue['description'],
+                    'fullText' => $lookup,
                 ]
             );
         }
 
         $num_found = sizeof($tasks);
-        if ($resume && !empty($tasks) && $num_found > 1) {
+        if ($resume && !empty($tasks)) {
             return false;
         } elseif (!empty($tasks) && $num_found > 1) {
-            print(
-                'Oops, I found more than one already existing task in phabricator.'
+            printf(
+                'Oops, looks like I found more than one existing task in Phabricator that matches the following one:'
+                . PHP_EOL . PHP_EOL
+                . '[#%d] "%s"'
                 . PHP_EOL
-                . 'Please indicate which one to update.'
-                . PHP_EOL
+                . 'Description (shortnd.): %s'
+                . PHP_EOL . PHP_EOL
+                . 'Please indicate which one to update or press Enter to create a new task.'
+                . PHP_EOL,
+                $issue['id'],
+                $issue['subject'],
+                empty($issue['description']) ? '[No description]' : substr($issue['description'], 200)
             );
             $i = 0;
             foreach ($tasks as $task) {
@@ -261,14 +309,26 @@ trait Phabricator
                     $task['description']
                 );
             }
+            printf(
+                "[%d] =>\tSKIP this issue."
+                . PHP_EOL
+                . "\t" . 'Select this entry to entirely skip this issue, not updating any of the above Maniphest tasks.' . PHP_EOL
+                . "\t" . 'Note: If you run remaim with the -r flag, this behavior will be the default when I encounter existing tasks.'
+                . PHP_EOL . PHP_EOL,
+                $i++
+            );
             $index = $this->selectIndexFromList(
-                'Enter the [index] of the task you would like to use',
-                $i - 1
+                'ZOMG, what shall I do?',
+                $i - 1,
+                0,
+                true
             );
             $keys = array_keys($tasks);
             if (array_key_exists($index, $keys)) {
                 $key = $keys[$index];
                 return $tasks[$key];
+            } elseif (intval($index) === ($i - 1)) {
+                return false;
             }
             return [];
         } elseif (sizeof($tasks) === 1) {
