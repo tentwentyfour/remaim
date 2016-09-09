@@ -60,7 +60,7 @@ class Wizard
                 sprintf(
                     PHP_EOL . 'I am unable to connect to %s. ' . PHP_EOL
                     . 'There was an error resolving the server hostname. Check that you are connected to the internet and that DNS is correctly configured.' . PHP_EOL . PHP_EOL,
-                    $config['phabricator']['host']
+                    $this->config['phabricator']['host']
                 )
             );
             exit(1);

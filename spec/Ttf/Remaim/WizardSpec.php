@@ -19,7 +19,7 @@ use Redmine\Api\Project;
 use Redmine\Api\Issue;
 use Redmine\Api\Membership;
 use Redmine\Api\CustomField;
-use Ttf\Remaim\Facade\Redmine as RedmineFacade;
+use Ttf\Remaim\Facade\Redmine as Facade;
 
 require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
 
@@ -34,21 +34,19 @@ class WizardSpec extends ObjectBehavior
      *
      * "The class \ConduitClient is marked final and its methods cannot be replaced. Classes marked final can be passed in to \Mockery::mock() as instantiated objects to create a partial mock, but only if the mock is not subject to type hinting checks.
      *
+     * We're also using mockery on the services inside our ServiceContainer. With prophecy, we would always get the following Exception when trying to stub it:
+     * "Cannot use object of type Prophecy\Prophecy\MethodProphecy as array in src/Wizard.php on line 197"
+     *
      * @return void
      */
-    public function let(Client $redmine, Project $project, CustomField $custom_fields, RedmineFacade $facade)
+    public function let(Client $redmine, Project $project, CustomField $custom_fields)
     {
         date_default_timezone_set('UTC');
 
         $container = new Container();
-        $container['redmine_client'] = function ($c) use ($redmine) {
-            return $redmine;
+        $container['redmine'] = function ($c) {
+            return m::mock('Facade');
         };
-
-        $container['redmine'] = function ($c) use ($facade) {
-            return $facade;
-        };
-
         $container['config'] = [
             'redmine' => [
                 'user' => 'Hank',
@@ -103,11 +101,16 @@ class WizardSpec extends ObjectBehavior
 
     function it_presents_a_summary_before_initiating_the_migration()
     {
-        $this->container['redmine']->getProjectDetails(34)->shouldBeCalled()->willReturn([
+        $details = [
             'project' => [
                 'name' => 'Redmine Project'
             ]
-        ]);
+        ];
+
+        $this->container['redmine'] = $this->container->extend('redmine', function ($redmine, $c) use ($details) {
+            $redmine->shouldReceive('getProjectDetails')->with(34)->once()->andReturn($details);
+            return $redmine;
+        });
 
         $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('y');
 
@@ -373,10 +376,6 @@ class WizardSpec extends ObjectBehavior
             "2 total projects retrieved.\n\n[1 – First project]\n[4 – Second project]\n\nPlease select (type) a project ID or leave empty to go back to the previous step:\n> Sorry, if a project with id 3 exists, you don't seem to have access to it. Please check your permissions and the id you specified and try again.\nPlease enter the id or slug of the project in Phabricator if you know it.\nPress\n[Enter] to see a list of available projects in Phabricator,\n[0] to create a new project from the Redmine project's details or\n[q] to quit and abort:\n> "
         );
     }
-
-
-
-
 
 
     function it_caches_phabricator_user_lookups()
