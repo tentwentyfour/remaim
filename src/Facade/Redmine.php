@@ -122,7 +122,7 @@ class Redmine
     {
         if (!array_key_exists($project_id, $this->projects)) {
             $this->projects[$project_id] = $this->redmine->project->show($project_id);
-        }
+        }        
         return $this->projects[$project_id];
     }
 

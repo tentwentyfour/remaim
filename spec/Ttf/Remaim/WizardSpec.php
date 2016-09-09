@@ -19,13 +19,14 @@ use Redmine\Api\Project;
 use Redmine\Api\Issue;
 use Redmine\Api\Membership;
 use Redmine\Api\CustomField;
+use Ttf\Remaim\Facade\Redmine as RedmineFacade;
 
 require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
 
 class WizardSpec extends ObjectBehavior
 {
 
-    private $conduit;   // mock of ConduitClient
+    private $container;
 
     /**
      * We're using Mockery for mocking ConduitClient, which is marked as final.
@@ -35,16 +36,20 @@ class WizardSpec extends ObjectBehavior
      *
      * @return void
      */
-    public function let(Client $redmine, Project $project, CustomField $custom_fields)
+    public function let(Client $redmine, Project $project, CustomField $custom_fields, RedmineFacade $facade)
     {
         date_default_timezone_set('UTC');
 
         $container = new Container();
-        $container['redmine_client'] = function ($c) {
-            return new Client;
+        $container['redmine_client'] = function ($c) use ($redmine) {
+            return $redmine;
         };
 
-        $config = [
+        $container['redmine'] = function ($c) use ($facade) {
+            return $facade;
+        };
+
+        $container['config'] = [
             'redmine' => [
                 'user' => 'Hank',
                 'password' => 'ImNotMoody',
@@ -69,8 +74,8 @@ class WizardSpec extends ObjectBehavior
         // ]);
 
         // Proxied partial mock, see http://docs.mockery.io/en/latest/reference/partial_mocks.html#proxied-partial-mock
-        $container['conduit'] = function ($c) {
-            $conduit = m::mock(new \ConduitClient($config['phabricator']['host']));
+        $container['conduit'] = function ($c) use ($container) {
+            $conduit = m::mock(new \ConduitClient($container['config']['phabricator']['host']));
             $conduit
             ->shouldReceive('callMethodSynchronous')
             ->with('maniphest.querystatuses', [])
@@ -79,9 +84,11 @@ class WizardSpec extends ObjectBehavior
                 'open' => 'Open',
                 'resolved' => 'Resolved',
             ]]);
+            return $conduit;
         };
 
         $this->beConstructedWith($container);
+        $this->container = $container;
     }
 
     public function letGo()
@@ -94,36 +101,45 @@ class WizardSpec extends ObjectBehavior
         $this->shouldHaveType(Wizard::class);
     }
 
-    function it_exits_with_an_exception_if_it_cannot_connect_to_redmine(Client $redmine, Project $project)
+    function it_presents_a_summary_before_initiating_the_migration()
     {
-        $redmine->api('project')->willReturn($project);
-        $project->listing()->shouldBeCalled()->willReturn([]);
-        $this->shouldThrow('\RuntimeException')->duringAssertConnectionToRedmine();
-    }
-
-    function it_returns_true_if_it_can_connect_to_redmine(Client $redmine, Project $project)
-    {
-        $redmine->api('project')->willReturn($project);
-        $project->listing()->shouldBeCalled()->willReturn([
-            'Website' => [1]
+        $this->container['redmine']->getProjectDetails(34)->shouldBeCalled()->willReturn([
+            'project' => [
+                'name' => 'Redmine Project'
+            ]
         ]);
-        $this->assertConnectionToRedmine()->shouldReturn(true);
-    }
 
-    function it_throws_an_exception_if_redmine_returns_an_empty_value(Client $redmine, Project $project)
-    {
-        $redmine->api('project')->willReturn($project);
-        $project->listing()->shouldBeCalled();
-        $project->listing()->willReturn();
-        $this->shouldThrow('\RuntimeException')->duringAssertConnectionToRedmine();
-    }
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('y');
 
-    function it_throws_an_exception_if_redmine_returns_an_non_array_value(Client $redmine, Project $project)
-    {
-        $redmine->api('project')->willReturn($project);
-        $project->listing()->shouldBeCalled();
-        $project->listing()->willReturn(1);
-        $this->shouldThrow('\RuntimeException')->duringAssertConnectionToRedmine();
+        $phabricator_project = [
+            'name' => 'Phabricator Project',
+            'id' => 78,
+        ];
+        $policies = [
+            'view' => 'PHID-foobar',
+            'edit' => 'PHID-barbaz',
+        ];
+        $tasks = [
+            'total_count' => [10],
+        ];
+        ob_start();
+        $this->presentSummary(
+            34,
+            $phabricator_project,
+            $tasks,
+            $policies
+        )->shouldReturn(true);
+        $output = ob_get_clean();
+        expect($output)->toBe(PHP_EOL . PHP_EOL .
+            '####################' . PHP_EOL .
+            '# Pre-flight check #' . PHP_EOL .
+            '####################' . PHP_EOL .
+            'Redmine project named "Redmine Project" with ID 34.' . PHP_EOL .
+            'Target phabricator project named "Phabricator Project" with ID 78.' . PHP_EOL .
+            'View policy: PHID-foobar, Edit policy: PHID-barbaz' . PHP_EOL .
+            '10 tickets to be migrated!' . PHP_EOL . PHP_EOL . 'OK to continue? [y/N]:' . PHP_EOL .
+            '> '
+        );
     }
 
     function it_is_able_to_look_up_a_phabricator_project_by_its_id()
@@ -144,75 +160,6 @@ class WizardSpec extends ObjectBehavior
         ->once()
         ->andReturn($query_result);
         $this->findPhabricatorProject($lookup)->shouldReturn($project_array);
-    }
-
-    function it_returns_a_structured_list_of_projects(Client $redmine, Project $project)
-    {
-        $redmine->api('project')->willReturn($project);
-        $project->all(['limit' => 1024])->shouldBeCalled();
-        $project->all(['limit' => 1024])->willReturn([
-            'projects' => [
-                [
-                    'id' => 5,
-                    'name' => 'Project one',
-                    'identifier' => 'project_one',
-                    'description' => 'The first project',
-                    'status' => 1,
-                    'created_on'  => "2013-05-16T18:40:18Z",
-                    'updated_on' => "2013-05-16T18:40:18Z"
-                ],
-                [
-                    'id' => 6,
-                    'name' => 'Project two',
-                    'identifier' => 'project_two',
-                    'description' => 'The second project',
-                    'status' => 1,
-                    'parent' => [
-                        'id' => 5
-                    ],
-                    'created_on'  => "2013-05-16T18:40:18Z",
-                    'updated_on' => "2013-05-16T18:40:18Z"
-                ],
-            ],
-            'total_count' => [2],
-        ]);
-
-        $project_array = [
-            'total_count' => 2,
-            'lowest' => 5,
-            'highest' => 6,
-            'projects' => [
-                [
-                    'id' => 5,
-                    'name' => 'Project one',
-                    'identifier' => 'project_one',
-                    'description' => 'The first project',
-                    'status' => 1,
-                    'created_on'  => "2013-05-16T18:40:18Z",
-                    'updated_on' => "2013-05-16T18:40:18Z",
-                    'parent' => [
-                        'id' => 0
-                    ],
-                    'children' => [
-                        [
-                            'id' => 6,
-                            'name' => 'Project two',
-                            'identifier' => 'project_two',
-                            'description' => 'The second project',
-                            'status' => 1,
-                            'parent' => [
-                                'id' => 5
-                            ],
-                            'created_on'  => "2013-05-16T18:40:18Z",
-                            'updated_on' => "2013-05-16T18:40:18Z",
-                            'children' => []
-                        ],
-                    ],
-                ]
-            ],
-        ];
-
-        $this->listRedmineProjects()->shouldReturn($project_array);
     }
 
     function it_returns_the_redmine_projects_id_and_name()
@@ -264,54 +211,6 @@ class WizardSpec extends ObjectBehavior
         $this->lookupGroupProjects()->shouldReturn($groups);
     }
 
-    function it_retrieves_redmine_project_members(Client $redmine, Membership $membership)
-    {
-        $redmine->api('membership')->willReturn($membership);
-        $membership->all('23')->willReturn([
-            'memberships'  => [
-                [
-                    'id' => 187,
-                    'project' => [
-                        'id' => 23,
-                        'name' => 'Some project',
-                    ],
-                    'user' => [
-                        'id' => 11,
-                        'name' => 'Lisa Lotte',
-                    ],
-                    'roles' => [
-                        [
-                            'id' => 4,
-                            'name' => 'Developer',
-                            'inherited' => 1,
-                        ],
-                    ],
-                ],
-                [
-                    'id' => 188,
-                    'project' => [
-                        'id' => 23,
-                        'name' => 'Some project',
-                    ],
-                    'user' => [
-                        'id' => 12,
-                        'name' => 'Stan Stocks',
-                    ],
-                    'roles' => [
-                        [
-                            'id' => 4,
-                            'name' => 'Developer',
-                            'inherited' => 1,
-                        ],
-                    ],
-                ]
-            ]
-        ]);
-        $this->getRedmineProjectMembers(23)->shouldReturn([
-            'Lisa Lotte',
-            'Stan Stocks',
-        ]);
-    }
 
     function it_creates_a_new_phabricator_project_from_redmine_details()
     {
@@ -475,96 +374,10 @@ class WizardSpec extends ObjectBehavior
         );
     }
 
-    function it_throws_an_exception_if_no_tasks_are_found(Client $redmine, Issue $issue)
-    {
-        $redmine->api('issue')->willReturn($issue);
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->willReturn(['issues' => []]);
 
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->shouldBeCalled();
 
-        $this->shouldThrow('\Ttf\Remaim\Exception\NoIssuesFoundException')->during('getIssuesForProject', [1]);
-    }
 
-    function it_throws_an_exception_if_looking_up_tasks_failed(Client $redmine, Issue $issue)
-    {
-        $redmine->api('issue')->willReturn($issue);
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->willReturn(false);
 
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->shouldBeCalled();
-        $this->shouldThrow('\Ttf\Remaim\Exception\NoIssuesFoundException')->during('getIssuesForProject', [1]);
-    }
-
-    function it_returns_issue_details_if_issues_are_found(Client $redmine, Issue $issue)
-    {
-        $redmine->api('issue')->willReturn($issue);
-
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->willReturn([
-            'issues' => [
-                [
-                    'id' => 1,
-                    'project' => [
-                        'id' => 1,
-                        'name' => 'Test',
-                    ],
-                    'tracker' => [
-                        'id' => 1,
-                        'name' => 'Bug',
-                    ],
-                    'status' => [
-                        'id' => 1,
-                        'name' => 'New',
-                    ],
-                    'priority' => [
-                        'id' => 4,
-                        'name' => 'Normal',
-                    ],
-                ]
-            ]
-        ]);
-
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->shouldBeCalled();
-        $this->getIssuesForProject(1)->shouldReturn([
-            'issues' => [
-                [
-                    'id' => 1,
-                    'project' => [
-                        'id' => 1,
-                        'name' => 'Test',
-                    ],
-                    'tracker' => [
-                        'id' => 1,
-                        'name' => 'Bug',
-                    ],
-                    'status' => [
-                        'id' => 1,
-                        'name' => 'New',
-                    ],
-                    'priority' => [
-                        'id' => 4,
-                        'name' => 'Normal',
-                    ],
-                ],
-            ],
-        ]);
-    }
 
     function it_caches_phabricator_user_lookups()
     {
@@ -931,48 +744,7 @@ class WizardSpec extends ObjectBehavior
         )->shouldReturn($expectedTransactions);
     }
 
-    function it_presents_a_summary_before_initiating_the_migration(Client $redmine, Project $project)
-    {
-        $project_detail = [
-            'project' => [
-                'name' => 'Redmine Project',
-            ],
-        ];
 
-        $redmine->api('project')->willReturn($project);
-        $project->show(34)->willReturn($project_detail);
-        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('y');
-
-        $phabricator_project = [
-            'name' => 'Phabricator Project',
-            'id' => 78,
-        ];
-        $policies = [
-            'view' => 'PHID-foobar',
-            'edit' => 'PHID-barbaz',
-        ];
-        $tasks = [
-            'total_count' => [10],
-        ];
-        ob_start();
-        $this->presentSummary(
-            34,
-            $phabricator_project,
-            $tasks,
-            $policies
-        )->shouldReturn(true);
-        $output = ob_get_clean();
-        expect($output)->toBe(PHP_EOL . PHP_EOL .
-            '####################' . PHP_EOL .
-            '# Pre-flight check #' . PHP_EOL .
-            '####################' . PHP_EOL .
-            'Redmine project named "Redmine Project" with ID 34.' . PHP_EOL .
-            'Target phabricator project named "Phabricator Project" with ID 78.' . PHP_EOL .
-            'View policy: PHID-foobar, Edit policy: PHID-barbaz' . PHP_EOL .
-            '10 tickets to be migrated!' . PHP_EOL . PHP_EOL . 'OK to continue? [y/N]:' . PHP_EOL .
-            '> '
-        );
-    }
 
     function it_forces_a_specific_protocol_if_it_has_been_set_in_the_config()
     {
