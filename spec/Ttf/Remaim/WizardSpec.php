@@ -12,6 +12,8 @@ use phpmock\mockery\PHPMockery;
 
 use Ttf\Remaim\Wizard;  // System under test
 
+use Pimple\Container;
+
 use Redmine\Client;
 use Redmine\Api\Project;
 use Redmine\Api\Issue;
@@ -37,6 +39,11 @@ class WizardSpec extends ObjectBehavior
     {
         date_default_timezone_set('UTC');
 
+        $container = new Container();
+        $container['redmine_client'] = function ($c) {
+            return new Client;
+        };
+
         $config = [
             'redmine' => [
                 'user' => 'Hank',
@@ -52,25 +59,29 @@ class WizardSpec extends ObjectBehavior
                 'Low' => 25
             ]
         ];
-        $redmine->api('project')->willReturn($project);
-        $project->listing()->willReturn(['some' => 'array']);
-        $redmine->api('custom_fields')->willReturn($custom_fields);
-        $custom_fields->listing()->willReturn([
-            'Billed' => 1,
-            'Out of scope' => 2,
-        ]);
-        // Proxied partial mock, see http://docs.mockery.io/en/latest/reference/partial_mocks.html#proxied-partial-mock
-        $this->conduit = m::mock(new \ConduitClient($config['phabricator']['host']));
-        $this->conduit
-        ->shouldReceive('callMethodSynchronous')
-        ->with('maniphest.querystatuses', [])
-        ->once()
-        ->andReturn(['statusMap' => [
-            'open' => 'Open',
-            'resolved' => 'Resolved',
-        ]]);
 
-        $this->beConstructedWith($config, $redmine, $this->conduit);
+        // $redmine->api('project')->willReturn($project);
+        // $project->listing()->willReturn(['some' => 'array']);
+        // $redmine->api('custom_fields')->willReturn($custom_fields);
+        // $custom_fields->listing()->willReturn([
+        //     'Billed' => 1,
+        //     'Out of scope' => 2,
+        // ]);
+
+        // Proxied partial mock, see http://docs.mockery.io/en/latest/reference/partial_mocks.html#proxied-partial-mock
+        $container['conduit'] = function ($c) {
+            $conduit = m::mock(new \ConduitClient($config['phabricator']['host']));
+            $conduit
+            ->shouldReceive('callMethodSynchronous')
+            ->with('maniphest.querystatuses', [])
+            ->once()
+            ->andReturn(['statusMap' => [
+                'open' => 'Open',
+                'resolved' => 'Resolved',
+            ]]);
+        };
+
+        $this->beConstructedWith($container);
     }
 
     public function letGo()
