@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.2.0
+ * @version  0.3.0
  * @since    0.2.0
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -21,7 +21,7 @@ namespace Ttf\Remaim\Traits;
 trait MarkupConverter
 {
     /**
-     * Naively converts some textile markup to markdown.
+     * Naively converts some textile markup to markdown/remarkup.
      *
      * @param  String $text Input text
      *

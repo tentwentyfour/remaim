@@ -4,7 +4,7 @@
  *
  * @package Ttf\Remaim
  *
- * @version  0.1.1 Short Circuit
+ * @version  0.3.0
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -22,6 +22,9 @@ use Redmine\Api\Issue;
 
 use Ttf\Remaim\Exception\NoIssuesFoundException;
 
+/**
+ * @inherit_doc
+ */
 class Wizard
 {
     use Traits\Phabricator;
@@ -359,7 +362,7 @@ class Wizard
         print(PHP_EOL);
 
         $message = 'Please select (type) a project ID';
-        $message .= ($can_return) ? ' or leave empty to go back to the previous step' : '';
+        $message .= ($can_return) ? ' or leave empty to go back to the previous step:' : '';
 
         return $this->selectIndexFromList(
             $message,
@@ -379,7 +382,7 @@ class Wizard
     private function prompt($question)
     {
         printf(
-            '%s:' . PHP_EOL . '> ',
+            '%s' . PHP_EOL . '> ',
             $question
         );
         $fp = fopen('php://stdin', 'r');

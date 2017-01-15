@@ -18,7 +18,7 @@ Installation
 Clone the project from https://github.com/tentwentyfour/remaim, then run
 
 ```bash
-composer install
+composer install --optimize-autoloader
 ```
 
 Usage
@@ -55,6 +55,8 @@ Running tests
 ./vendor/bin/phpspec run
 ```
 
+_Note:_ to see full diffs of failing tests, run phpspec with the _--verbose_ flag.
+
 Contributing
 ------------
 
@@ -64,7 +66,6 @@ Please see CONTRIBUTING.md for information on how you may contribute to this pro
 FAQ
 ---
 
-Q: But, but, it's not entirely done yet, why are you releasing this half-done tool to the public?
-A: "Release early, release often" We believe the tool is in a state where many people can profit from using it and can adjust or extend its behavior with moderate effort. We've been using it to migrate over 4000 issues.
-
+* Q: But, but, it's not entirely done yet, why are you releasing this half-done tool to the public?
+* A: "Release early, release often" We believe the tool is in a state where many people can profit from using it and can adjust or extend its behavior with moderate effort. We've been successfully using it to migrate over 4000 issues including history and files.
 Plus, finishing ALL the things we would like to see would really take a long time, so we're hoping the community will pick this up, improve on it and send us plenty of PRs ;)

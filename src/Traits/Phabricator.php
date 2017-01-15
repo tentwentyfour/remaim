@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.2.0
+ * @version  0.3.0
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -107,7 +107,8 @@ trait Phabricator
                 . PHP_EOL
                 . 'Please enter the id or slug of the project in Phabricator if you know it'
                 . PHP_EOL
-                . 'or press' . PHP_EOL
+                . 'or press'
+                . PHP_EOL
                 . "\t" . '[Enter] to see a list of available projects in Phabricator,'
                 . PHP_EOL
                 . "\t". '[0] to create a new project from the Redmine project\'s details or'
@@ -276,7 +277,7 @@ trait Phabricator
                 'maniphest.query',
                 [
                     'projectPHIDs' => [$project_phid],
-                    'fullText' => $lookup,
+                    'fullText' => preg_replace('/[^\p{L}\p{N}_]+/u', ' ', $lookup),
                 ]
             );
         }

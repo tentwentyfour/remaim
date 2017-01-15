@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.1.1 Short Circuit
+ * @version  0.3.0
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -138,7 +138,7 @@ trait Transactions
      * whose API token we're using, we cannot assign each
      * individual comment to the original author.
      *
-     * We therefore prefix the comments with their original authors' names.
+     * Instead, we prefix the comments with their original authors' names.
      *
      * @param  array $issue Redmine issue
      *
@@ -191,7 +191,7 @@ trait Transactions
                 );
             }
 
-            $selected = $this->prompt('Please indicate which status to use');
+            $selected = $this->prompt('Please indicate which status to use:');
             $values = array_values($this->status_map);
             if (array_key_exists($selected, $values)) { // if $select < sizeof($values)
                 $this->status_map[$status] = $values[$selected];

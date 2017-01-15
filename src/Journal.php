@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.2.0 The adolescent years
+ * @version  0.3.0
  * @since    0.2.0 The adolescent years
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>

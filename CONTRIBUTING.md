@@ -4,8 +4,20 @@ Contributing
 ReMaIm is an open source, community-driven project. If you'd like to contribute,
 feel free to do this, but remember to follow this few simple rules:
 
+Development
+-----------
+
+The easiest way to run a redmine server – if you don't have one running anyway – is using a docker container:
+
+```bash
+docker run --rm -P --network=my_nw --name some-redmine redmine
+```
+
+There is of course a downside to this and that is not having any complex data for migration. One very valuable contribution would thus be a relatively large, anonymized dataset to be used during development.
+
+
 Branching strategy
--------------------
+------------------
 
 - For new features, or bugs base your changes on the `master` branch and open PRs against `master`
 
@@ -25,4 +37,4 @@ Code style / Formatting
 So what remains to be done?
 ---------------------------
 
-A shitload of things! Take a look at the issue section on github to see what is most urgent or popular.
+A sh*tload of things! Take a look at the issue section on github to see what is most urgent or popular.

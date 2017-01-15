@@ -5,7 +5,7 @@
  *
  * @package Ttf\Remaim
  *
- * @version  0.3.0
+ * @version  0.3.0 Adolescent rewrite (pimple)
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -73,6 +73,8 @@ $container['conduit'] = function ($c) {
 
 /**
  * Service factories
+ *
+ * Returns a new service on each call.
  */
 $container['journal'] = $container->factory(function ($c) {
     return new Journal($c);
