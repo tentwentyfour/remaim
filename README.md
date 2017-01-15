@@ -37,9 +37,7 @@ Users will be looked up by their full names, so make sure your users have identi
 phabricator credentials
 2. Run `php bin/remaim`
 
-
 _Note_: If you're using an API key for redmine, use the `token` key instead of `user` and `password`. Be advised though that, if you're using _Basic Auth_ in front of your redmine installation, only user and password will work.
-
 
 Running tests
 -------------
