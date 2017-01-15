@@ -1,7 +1,7 @@
 Contributing
 ============
 
-ReMaIm is an open source, community-driven project. If you'd like to contribute,
+`remaim` is an open source, community-driven project. If you'd like to contribute,
 feel free to do this, but remember to follow this few simple rules:
 
 Development
@@ -37,4 +37,6 @@ Code style / Formatting
 So what remains to be done?
 ---------------------------
 
-A sh*tload of things! Take a look at the issue section on github to see what is most urgent or popular.
+A sh*tload of things!
+
+Take a look at the [issue section on github](https://github.com/tentwentyfour/remaim/issues) to see what is most urgent or popular.
