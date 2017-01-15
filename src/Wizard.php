@@ -4,7 +4,7 @@
  *
  * @package Ttf\Remaim
  *
- * @version  0.1.1 Short Circuit
+ * @version  0.3.0
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -17,17 +17,21 @@
 
 namespace Ttf\Remaim;
 
-use Redmine\Client;
+use Pimple\Container;
 use Redmine\Api\Issue;
 
 use Ttf\Remaim\Exception\NoIssuesFoundException;
 
+/**
+ * @inherit_doc
+ */
 class Wizard
 {
+    use Traits\Phabricator;
     use Traits\Transactions;
     use Traits\FileManager;
-    use Traits\Phabricator;
-    use Traits\Redmine;
+    use Traits\ProjectList;
+    use Traits\MarkupConverter;
 
     private $phabricator_users = [];
     private $config;
@@ -35,7 +39,7 @@ class Wizard
     private $conduit;
     private $priority_map;
     private $status_map;
-    private $custom_fields;
+    private $redmine_project;
 
     /**
      * Initialize Migration Wizard
@@ -44,24 +48,22 @@ class Wizard
      * @param \Redmine\Client $redmine Instance of the Redmine API Client
      * @param \ConduitClient  $conduit Instance of ConduitClient
      */
-    public function __construct(array $config, Client $redmine, $conduit)
+    public function __construct(Container $c)
     {
-        $this->config = $config;
-        $this->redmine = $redmine;
-        $this->conduit = $conduit;
-        $this->priority_map = $config['priority_map'];
+        $this->container = $c;
+        $this->config = $c['config'];
+        $this->conduit = $c['conduit'];
+        $this->redmine = $c['redmine'];
+        $this->priority_map = $this->config['priority_map'];
         try {
             $this->status_map = $this->fetchPhabricatorStati();
-            $this->custom_fields = array_flip(
-                $this->redmine->custom_fields->listing()
-            );
         } catch (\HTTPFutureCURLResponseStatus $e) {
             fwrite(
                 STDERR,
                 sprintf(
                     PHP_EOL . 'I am unable to connect to %s. ' . PHP_EOL
                     . 'There was an error resolving the server hostname. Check that you are connected to the internet and that DNS is correctly configured.' . PHP_EOL . PHP_EOL,
-                    $config['phabricator']['host']
+                    $this->config['phabricator']['host']
                 )
             );
             exit(1);
@@ -73,12 +75,48 @@ class Wizard
      *
      * @return void
      */
-    public function run()
+    public function run($resume = false)
     {
+        print(
+            " __      __          ___
+/\ \  __/\ \        /\_ \
+\ \ \/\ \ \ \     __\//\ \     ___    ___     ___ ___      __
+ \ \ \ \ \ \ \  /'__`\\ \ \   /'___\ / __`\ /' __` __`\  /'__`\
+  \ \ \_/ \_\ \/\  __/ \_\ \_/\ \__//\ \L\ \/\ \/\ \/\ \/\  __/
+   \ `\___x___/\ \____\/\____\ \____\ \____/\ \_\ \_\ \_\ \____\
+    '\/__//__/  \/____/\/____/\/____/\/___/  \/_/\/_/\/_/\/____/
+
+
+ __               ____                                                 __
+/\ \__           /\  _`\                                __            /\ \
+\ \ ,_\   ___    \ \ \L\ \     __    ___ ___      __   /\_\    ___ ___\ \ \
+ \ \ \/  / __`\   \ \ ,  /   /'__`\/' __` __`\  /'__`\ \/\ \ /' __` __`\ \ \
+  \ \ \_/\ \L\ \   \ \ \\ \ /\  __//\ \/\ \/\ \/\ \L\.\_\ \ \/\ \/\ \/\ \ \_\
+   \ \__\ \____/    \ \_\ \_\ \____\ \_\ \_\ \_\ \__/.\_\\ \_\ \_\ \_\ \_\/\_\
+    \/__/\/___/      \/_/\/ /\/____/\/_/\/_/\/_/\/__/\/_/ \/_/\/_/\/_/\/_/\/_/
+                                                                              "
+
+            . PHP_EOL
+        );
         try {
-            $this->assertConnectionToRedmine();
-            $redmine_project = $this->selectProject($this->listRedmineProjects());
-            $tasks = $this->getIssuesForProject($redmine_project);
+            if ($resume) {
+                print(
+                    'You have selected RESUME mode.' . PHP_EOL .
+                    'Tell me, why exactly did you have to leave in a hurry and abort the previous run?' . PHP_EOL . PHP_EOL
+                );
+            }
+            print('Attempting to connect to good ol\' Redmine... ');
+            $this->redmine->assertConnectionToRedmine();
+            print('success!' . PHP_EOL);
+            print(
+                'Stand by while we are retrieving a list of projects from your Redmine instance...' . PHP_EOL
+            );
+            $redmine_project = $this->redmine->show(
+                $this->selectProject($this->redmine->listProjects())
+            );
+            $this->redmine_project = $redmine_project;
+
+            $tasks = $this->redmine->getIssuesForProject($redmine_project);
 
             $phabricator_project = $this->selectOrCreatePhabricatorProject(
                 $redmine_project
@@ -96,7 +134,8 @@ class Wizard
             $results = $this->migrateIssues(
                 $tasks['issues'],
                 $phabricator_project,
-                $policies
+                $policies,
+                $resume
             );
             printf(
                 '%d tickets successfully migrated or updated!' . PHP_EOL,
@@ -148,7 +187,7 @@ class Wizard
         $tasks,
         $policies
     ) {
-        $project_detail = $this->redmine->project->show($redmine_project);
+        $project_detail = $this->redmine->getProjectDetails($redmine_project);
 
         printf(
             PHP_EOL . PHP_EOL .
@@ -180,30 +219,6 @@ class Wizard
         return true;
     }
 
-    /**
-     * Prompt the user to indicate which phabricator project they would like
-     * to migrate their redmine issues to.
-     *
-     * @param  Integer $project_id Redmine project ID
-     *
-     * @return array    Phabricator project details
-     */
-    public function selectOrCreatePhabricatorProject($project_id)
-    {
-        return $this->actOnChoice(
-            $this->prompt(
-                'Please enter the id or slug of the project in Phabricator if you know it.'
-                . PHP_EOL
-                . 'Press' . PHP_EOL
-                . '[Enter] to see a list of available projects in Phabricator,'
-                . PHP_EOL
-                . '[0] to create a new project from the Redmine project\'s details or'
-                . PHP_EOL
-                . '[q] to quit and abort'
-            ),
-            $project_id
-        );
-    }
 
     /**
      * Act on the choice that was made during selectOrCreatePhabricatorProject()
@@ -241,9 +256,9 @@ class Wizard
                 break;
             case '0':
                 $policies = $this->definePolicies($this->lookupGroupProjects());
-                $detail = $this->redmine->project->show($redmine_project);
+                $detail = $this->redmine->getProjectDetails($redmine_project);
                 $phab_members = $this->getPhabricatorUserPhid(
-                    $this->getRedmineProjectMembers($redmine_project)
+                    $this->redmine->getProjectMembers($redmine_project)
                 );
                 $project = $this->createNewPhabricatorProject(
                     $detail,
@@ -311,7 +326,7 @@ class Wizard
         $i = 0;
         foreach ($groups['data'] as $group) {
             printf(
-                "[%d] =>\t[ID]: T%d \n\t[Name]: %s\n",
+                "[%d] =>\t[ID]: %d \n\t[Name]: %s\n",
                 $i++,
                 $group['id'],
                 $group['fields']['name']
@@ -326,54 +341,6 @@ class Wizard
             'view' => $groupproject['phid'],
             'edit' => $groupproject['phid'],
         ];
-    }
-
-    /**
-     * Recursive function to build a tree structure from
-     * the projects' parent > child relationships.
-     *
-     * @param  array  &$projects  List of projects to be put into a tree structure
-     * @param  integer $parent    Subject of the current iteration of the function run
-     *
-     * @return array              Tree structure of projects
-     */
-    public function buildProjectTree(&$projects, $parent = 0)
-    {
-        $tmp_array = [];
-        foreach ($projects as $project) {
-            if ($project['parent']['id'] == $parent) {
-                $project['children'] = $this->buildProjectTree($projects, $project['id']);
-                $tmp_array[] = $project;
-            }
-        }
-        usort($tmp_array, function ($a, $b) {
-            return $a['id'] > $b['id'];
-        });
-        return $tmp_array;
-    }
-
-    /**
-     * Visually represents project structure
-     *
-     * @param  Array  $project  Single project array
-     * @param  integer $level   Level of hierarchy-depth
-     *
-     * @return String           Returns a visual representation of the structure of $project
-     */
-    public function representProject($project, $level = 0)
-    {
-        $string = sprintf(
-            "[%d – %s]\n",
-            $project['id'],
-            $project['name']
-        );
-        if (!empty($project['children'])) {
-            $indent = implode('', array_pad([], ++$level, "\t"));
-            foreach ($project['children'] as $project) {
-                $string .= sprintf("%s└–––––––– %s", $indent, $this->representProject($project, $level));
-            }
-        }
-        return $string;
     }
 
     /**
@@ -395,7 +362,7 @@ class Wizard
         print(PHP_EOL);
 
         $message = 'Please select (type) a project ID';
-        $message .= ($can_return) ? ' or leave empty to go back to the previous step' : '';
+        $message .= ($can_return) ? ' or leave empty to go back to the previous step:' : '';
 
         return $this->selectIndexFromList(
             $message,
@@ -415,7 +382,7 @@ class Wizard
     private function prompt($question)
     {
         printf(
-            '%s:' . PHP_EOL . '> ',
+            '%s' . PHP_EOL . '> ',
             $question
         );
         $fp = fopen('php://stdin', 'r');
@@ -442,7 +409,7 @@ class Wizard
                 $min,
                 $max
             );
-            return $this->selectIndexFromList($message, $max);
+            return $this->selectIndexFromList($message, $max, $min, $allow_empty);
         }
         return $selectedIndex;
     }
@@ -459,29 +426,18 @@ class Wizard
     public function migrateIssues(
         $issues,
         $ph_project,
-        $policies
+        $policies,
+        $resume = false
     ) {
-        return array_map(function ($issue) use ($ph_project, $policies) {
-            $details = $this->redmine->issue->show(
-                $issue['id'],
-                [
-                    'include' => [
-                        'children',
-                        'attachments',
-                        'relations',
-                        'watchers',
-                        'journals',
-                    ]
-                ]
-            );
-
+        return array_map(function ($issue) use ($ph_project, $policies, $resume) {
+            $details = $this->redmine->getIssueDetail($issue['id']);
             $owner = $this->grabOwnerPhid($details['issue']);
-
             return $this->createManiphestTask(
                 $details['issue'],
                 $owner,
                 $ph_project['phid'],
-                $policies
+                $policies,
+                $resume
             );
         }, $issues);
     }
@@ -495,6 +451,7 @@ class Wizard
      * @param  string $owner        PHID identifying a potential task assignee
      * @param  string $project_phid PHID identifying a project in Phabricator
      * @param  array  $policies     List of policies to apply to the task
+     * @param  bool   $resume       Whether we wish to resume a previous run and ignore already existing tasks
      *
      * @return array                Details of maniphest.edit operation
      */
@@ -502,9 +459,26 @@ class Wizard
         $issue,
         $owner,
         $project_phid,
-        $policies
+        $policies,
+        $resume = false
     ) {
-        $task = $this->findExistingTask($issue, $project_phid);
+        $task = $this->findExistingTask($issue, $project_phid, $resume);
+
+        if (false === $task) {
+            printf(
+                'Skipping existing issue %d - %s' . PHP_EOL,
+                $issue['id'],
+                $issue['subject']
+            );
+            return;
+        }
+
+        printf(
+            '%s issue %d - "%s"...' . PHP_EOL,
+            !empty($task) ? 'Updating' : 'Migrating',
+            $issue['id'],
+            $issue['subject']
+        );
 
         $transactions = $this->assembleTransactionsFor(
             $project_phid,

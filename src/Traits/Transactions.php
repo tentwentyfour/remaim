@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.1.1 Short Circuit
+ * @version  0.3.0
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -137,7 +137,8 @@ trait Transactions
      * Since all comments will be created under the user
      * whose API token we're using, we cannot assign each
      * individual comment to the original author.
-     * We therefore prefix the comments with their original author's names
+     *
+     * Instead, we prefix the comments with their original authors' names.
      *
      * @param  array $issue Redmine issue
      *
@@ -150,26 +151,9 @@ trait Transactions
         }
 
         $transactions = [];
-        foreach ($issue['journals'] as $journal) {
-            if (!isset($journal['notes']) || empty($journal['notes'])) {
-                continue;
-            }
-            $timestamp = strtotime($journal['created_on']);
-            $comment = sprintf(
-                "On %s, %s wrote:\n %s",
-                date('l, F jS Y H:i:s', $timestamp),
-                $journal['user']['name'],
-                $this->convertToQuote(
-                    $this->convertFromRedmine($journal['notes'])
-                )
-            );
-
-            if (!empty($journal['details'])) {
-                $comment .= PHP_EOL . 'and:' . PHP_EOL . implode(
-                    PHP_EOL,
-                    $this->recountStory($journal['details'])
-                );
-            }
+        foreach ($issue['journals'] as $entry) {
+            $journal = $this->container['journal'];
+            $comment = $journal->transform($entry, $this->redmine_project);
 
             $transactions[] = [
                 'type' => 'comment',
@@ -179,114 +163,6 @@ trait Transactions
         return $transactions;
     }
 
-    /**
-     * Tries to detect whether the content in Redmine is using textile or markdown
-     * and then converts some markup (if textile) or just passes it on.
-     *
-     * This is a really naive and inefficient approach which could be improved.
-     *
-     * @todo Support external links
-     *
-     * @param  String $text Input text
-     *
-     * @return String Converted text
-     */
-    public function convertFromRedmine($text)
-    {
-        return str_replace(
-            ["\r", 'h1.', 'h2.', 'h3.', 'h4.', '<pre>', '</pre>', '@', '*', '_'],
-            ['', '#', '##', '###', '####', '```', '```', '`', '**', '//'],
-            trim($text)
-        );
-    }
-
-    public function convertToQuote($text)
-    {
-        return sprintf('> %s', preg_replace("/[\n\r]/", "\n> ", $text));
-    }
-
-    /**
-     * Recreate issue history based on detailed journal actions
-     *
-     * @param  array $details   Detailed actions taken
-     *
-     * @return array            Parsed, verbose action story
-     */
-    public function recountStory($details)
-    {
-        return array_map(function ($action) {
-            if ($action['property'] === 'attr') {
-                switch ($action['name']) {
-                    case 'status_id':
-                        return ' - changed task status';
-                        break;
-                    case 'done_ratio':
-                        return sprintf(
-                            ' - changed done from %d%% to %d%%',
-                            $action['old_value'],
-                            $action['new_value']
-                        );
-                        break;
-                    case 'priority_id':
-                        return sprintf(
-                            ' - %s the task\'s priority',
-                            $action['new_value'] > $action['old_value'] ? 'Raised' : 'Lowered'
-                        );
-                        break;
-                    // case 'fixed_version_id':
-                    //     // Needs to fetch versions for version ids
-                    //     return sprintf(
-                    //          ' - changed target version from "%s" to "%s"',
-                    //          $this->project->target_versions[$action['old_value']],
-                    //          $this->project->target_versions[$action['new_value']],
-                    //     )
-                    //     break;
-                    // case 'assigned_to_id':
-                    //     // todo
-                    //     // only has new_value!
-                    //     // (what if the issue is re-assigned to another person?)
-                    //     // need to have a map of user ids!
-                    //     break;
-                    case 'description':
-                        return ' - changed the description';
-                        break;
-                    case 'subject':
-                        return sprintf(
-                            ' - changed the subject from "%s" to "%s"',
-                            $action['old_value'],
-                            $action['new_value']
-                        );
-                        break;
-                    default:
-                        printf(
-                            'Encountered an unknown journal entry: %s' . PHP_EOL,
-                            serialize($action)
-                        );
-                        return sprintf(
-                            ' - changed another property I don\'t know about: %s',
-                            serialize($action)
-                        );
-                        break;
-                }
-            } elseif ($action['property'] === 'cf') {
-                if (isset($action['old_value']) && !empty($action['old_value'])) {
-                    return sprintf(
-                        ' - changed "%s" from "%s" to "%s"',
-                        $this->custom_fields[$action['name']],
-                        $action['old_value'],
-                        $action['new_value']
-                    );
-                } else {
-                    return sprintf(
-                        ' - set "%s" to "%s"',
-                        $this->custom_fields[$action['name']],
-                        $action['new_value']
-                    );
-                }
-
-            }
-        }, $details);
-    }
 
     /**
      * Create status transaction
@@ -301,7 +177,7 @@ trait Transactions
 
         if (!array_key_exists($status, $this->status_map)) {
             printf(
-                'We could not find a matching key for the status "%s"!' . "\n",
+                'I was unable to find a matching key for the status "%s"!' . "\n",
                 $status
             );
 
@@ -315,7 +191,7 @@ trait Transactions
                 );
             }
 
-            $selected = $this->prompt('Select a status to use');
+            $selected = $this->prompt('Please indicate which status to use:');
             $values = array_values($this->status_map);
             if (array_key_exists($selected, $values)) { // if $select < sizeof($values)
                 $this->status_map[$status] = $values[$selected];
@@ -343,7 +219,7 @@ trait Transactions
      */
     public function createDescriptionTransaction($issue, $policies, $task = null)
     {
-        $description = isset($issue['description']) ? $this->convertFromRedmine($issue['description']) : '';
+        $description = isset($issue['description']) ? $this->textileToMarkdown($issue['description']) : '';
         $file_ids = $this->uploadFiles($issue, $policies['view']);
 
         if (empty($file_ids)

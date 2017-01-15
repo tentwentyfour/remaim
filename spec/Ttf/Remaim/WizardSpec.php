@@ -1,16 +1,19 @@
 <?php
 /**
  * PhpSpec spec for the Redmine to Maniphest Importer
+ *
+ * @author David Raison <david@tentwentyfour.lu>
  */
 
 namespace spec\Ttf\Remaim;
 
 use PhpSpec\ObjectBehavior;
 use Prophecy\Argument;
+
 use Mockery as m;
 use phpmock\mockery\PHPMockery;
 
-use Ttf\Remaim\Wizard;  // System under test
+use Pimple\Container;
 
 use Redmine\Client;
 use Redmine\Api\Project;
@@ -18,26 +21,46 @@ use Redmine\Api\Issue;
 use Redmine\Api\Membership;
 use Redmine\Api\CustomField;
 
+use Ttf\Remaim\Wizard;
+use Ttf\Remaim\Journal;
+use Ttf\Remaim\Facade\Redmine as Facade;
+
 require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
 
 class WizardSpec extends ObjectBehavior
 {
 
-    private $conduit;   // mock of ConduitClient
+    private $container;
 
     /**
-     * We're using Mockery for mocking ConduitClient, which is marked as final.
+     * While simple objects use Prophecy by default,
+     * we using Mockery for mocking ConduitClient, which is marked as final.
      * See http://docs.mockery.io/en/latest/reference/index.html for Reference.
      *
      * "The class \ConduitClient is marked final and its methods cannot be replaced. Classes marked final can be passed in to \Mockery::mock() as instantiated objects to create a partial mock, but only if the mock is not subject to type hinting checks.
      *
+     * We're also using mockery on the services inside our ServiceContainer. With prophecy, we would always get the following Exception when trying to stub it:
+     * "Cannot use object of type Prophecy\Prophecy\MethodProphecy as array in src/Wizard.php on line 197"
+     *
      * @return void
      */
-    public function let(Client $redmine, Project $project, CustomField $custom_fields)
-    {
+    public function let(
+        Client $redmine,
+        Project $project,
+        CustomField $custom_fields
+    ) {
         date_default_timezone_set('UTC');
 
-        $config = [
+        $container = new Container();
+        $container['redmine'] = function ($c) {
+            return m::mock('Facade');
+        };
+
+        $container['journal'] = $container->factory(function ($c) {
+            return m::mock('Journal');
+        });
+
+        $container['config'] = [
             'redmine' => [
                 'user' => 'Hank',
                 'password' => 'ImNotMoody',
@@ -52,25 +75,26 @@ class WizardSpec extends ObjectBehavior
                 'Low' => 25
             ]
         ];
-        $redmine->api('project')->willReturn($project);
-        $project->listing()->willReturn(['some' => 'array']);
-        $redmine->api('custom_fields')->willReturn($custom_fields);
-        $custom_fields->listing()->willReturn([
-            'Billed' => 1,
-            'Out of scope' => 2,
-        ]);
-        // Proxied partial mock, see http://docs.mockery.io/en/latest/reference/partial_mocks.html#proxied-partial-mock
-        $this->conduit = m::mock(new \ConduitClient($config['phabricator']['host']));
-        $this->conduit
-        ->shouldReceive('callMethodSynchronous')
-        ->with('maniphest.querystatuses', [])
-        ->once()
-        ->andReturn(['statusMap' => [
-            'open' => 'Open',
-            'resolved' => 'Resolved',
-        ]]);
 
-        $this->beConstructedWith($config, $redmine, $this->conduit);
+        // $redmine->api('project')->willReturn($project);
+        // $project->listing()->willReturn(['some' => 'array']);
+
+        // Proxied partial mock, see http://docs.mockery.io/en/latest/reference/partial_mocks.html#proxied-partial-mock and method documentation above.
+        $container['conduit'] = function ($c) use ($container) {
+            $conduit = m::mock(new \ConduitClient($container['config']['phabricator']['host']));
+            $conduit
+            ->shouldReceive('callMethodSynchronous')
+            ->with('maniphest.querystatuses', [])
+            ->once()
+            ->andReturn(['statusMap' => [
+                'open' => 'Open',
+                'resolved' => 'Resolved',
+            ]]);
+            return $conduit;
+        };
+
+        $this->beConstructedWith($container);
+        $this->container = $container;
     }
 
     public function letGo()
@@ -83,36 +107,50 @@ class WizardSpec extends ObjectBehavior
         $this->shouldHaveType(Wizard::class);
     }
 
-    function it_exits_with_an_exception_if_it_cannot_connect_to_redmine(Client $redmine, Project $project)
+    function it_presents_a_summary_before_initiating_the_migration()
     {
-        $redmine->api('project')->willReturn($project);
-        $project->listing()->shouldBeCalled()->willReturn([]);
-        $this->shouldThrow('\RuntimeException')->duringAssertConnectionToRedmine();
-    }
+        $details = [
+            'project' => [
+                'name' => 'Redmine Project'
+            ]
+        ];
 
-    function it_returns_true_if_it_can_connect_to_redmine(Client $redmine, Project $project)
-    {
-        $redmine->api('project')->willReturn($project);
-        $project->listing()->shouldBeCalled()->willReturn([
-            'Website' => [1]
-        ]);
-        $this->assertConnectionToRedmine()->shouldReturn(true);
-    }
+        $this->container['redmine'] = $this->container->extend('redmine', function ($redmine, $c) use ($details) {
+            $redmine->shouldReceive('getProjectDetails')->with(34)->once()->andReturn($details);
+            return $redmine;
+        });
 
-    function it_throws_an_exception_if_redmine_returns_an_empty_value(Client $redmine, Project $project)
-    {
-        $redmine->api('project')->willReturn($project);
-        $project->listing()->shouldBeCalled();
-        $project->listing()->willReturn();
-        $this->shouldThrow('\RuntimeException')->duringAssertConnectionToRedmine();
-    }
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('y');
 
-    function it_throws_an_exception_if_redmine_returns_an_non_array_value(Client $redmine, Project $project)
-    {
-        $redmine->api('project')->willReturn($project);
-        $project->listing()->shouldBeCalled();
-        $project->listing()->willReturn(1);
-        $this->shouldThrow('\RuntimeException')->duringAssertConnectionToRedmine();
+        $phabricator_project = [
+            'name' => 'Phabricator Project',
+            'id' => 78,
+        ];
+        $policies = [
+            'view' => 'PHID-foobar',
+            'edit' => 'PHID-barbaz',
+        ];
+        $tasks = [
+            'total_count' => [10],
+        ];
+        ob_start();
+        $this->presentSummary(
+            34,
+            $phabricator_project,
+            $tasks,
+            $policies
+        )->shouldReturn(true);
+        $output = ob_get_clean();
+        expect($output)->toBe(PHP_EOL . PHP_EOL .
+            '####################' . PHP_EOL .
+            '# Pre-flight check #' . PHP_EOL .
+            '####################' . PHP_EOL .
+            'Redmine project named "Redmine Project" with ID 34.' . PHP_EOL .
+            'Target phabricator project named "Phabricator Project" with ID 78.' . PHP_EOL .
+            'View policy: PHID-foobar, Edit policy: PHID-barbaz' . PHP_EOL .
+            '10 tickets to be migrated!' . PHP_EOL . PHP_EOL . 'OK to continue? [y/N]' . PHP_EOL .
+            '> '
+        );
     }
 
     function it_is_able_to_look_up_a_phabricator_project_by_its_id()
@@ -127,81 +165,12 @@ class WizardSpec extends ObjectBehavior
         $query_result = [
             'data' => [$project_array],
         ];
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('project.query', $lookup)
         ->once()
         ->andReturn($query_result);
         $this->findPhabricatorProject($lookup)->shouldReturn($project_array);
-    }
-
-    function it_returns_a_structured_list_of_projects(Client $redmine, Project $project)
-    {
-        $redmine->api('project')->willReturn($project);
-        $project->all(['limit' => 1024])->shouldBeCalled();
-        $project->all(['limit' => 1024])->willReturn([
-            'projects' => [
-                [
-                    'id' => 5,
-                    'name' => 'Project one',
-                    'identifier' => 'project_one',
-                    'description' => 'The first project',
-                    'status' => 1,
-                    'created_on'  => "2013-05-16T18:40:18Z",
-                    'updated_on' => "2013-05-16T18:40:18Z"
-                ],
-                [
-                    'id' => 6,
-                    'name' => 'Project two',
-                    'identifier' => 'project_two',
-                    'description' => 'The second project',
-                    'status' => 1,
-                    'parent' => [
-                        'id' => 5
-                    ],
-                    'created_on'  => "2013-05-16T18:40:18Z",
-                    'updated_on' => "2013-05-16T18:40:18Z"
-                ],
-            ],
-            'total_count' => [2],
-        ]);
-
-        $project_array = [
-            'total_count' => 2,
-            'lowest' => 5,
-            'highest' => 6,
-            'projects' => [
-                [
-                    'id' => 5,
-                    'name' => 'Project one',
-                    'identifier' => 'project_one',
-                    'description' => 'The first project',
-                    'status' => 1,
-                    'created_on'  => "2013-05-16T18:40:18Z",
-                    'updated_on' => "2013-05-16T18:40:18Z",
-                    'parent' => [
-                        'id' => 0
-                    ],
-                    'children' => [
-                        [
-                            'id' => 6,
-                            'name' => 'Project two',
-                            'identifier' => 'project_two',
-                            'description' => 'The second project',
-                            'status' => 1,
-                            'parent' => [
-                                'id' => 5
-                            ],
-                            'created_on'  => "2013-05-16T18:40:18Z",
-                            'updated_on' => "2013-05-16T18:40:18Z",
-                            'children' => []
-                        ],
-                    ],
-                ]
-            ],
-        ];
-
-        $this->listRedmineProjects()->shouldReturn($project_array);
     }
 
     function it_returns_the_redmine_projects_id_and_name()
@@ -239,7 +208,7 @@ class WizardSpec extends ObjectBehavior
                 'after' => null,
             ]
         ];
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('project.search', [
             'constraints' => [
@@ -251,55 +220,6 @@ class WizardSpec extends ObjectBehavior
         ->once()
         ->andReturn($groups);
         $this->lookupGroupProjects()->shouldReturn($groups);
-    }
-
-    function it_retrieves_redmine_project_members(Client $redmine, Membership $membership)
-    {
-        $redmine->api('membership')->willReturn($membership);
-        $membership->all('23')->willReturn([
-            'memberships'  => [
-                [
-                    'id' => 187,
-                    'project' => [
-                        'id' => 23,
-                        'name' => 'Some project',
-                    ],
-                    'user' => [
-                        'id' => 11,
-                        'name' => 'Lisa Lotte',
-                    ],
-                    'roles' => [
-                        [
-                            'id' => 4,
-                            'name' => 'Developer',
-                            'inherited' => 1,
-                        ],
-                    ],
-                ],
-                [
-                    'id' => 188,
-                    'project' => [
-                        'id' => 23,
-                        'name' => 'Some project',
-                    ],
-                    'user' => [
-                        'id' => 12,
-                        'name' => 'Stan Stocks',
-                    ],
-                    'roles' => [
-                        [
-                            'id' => 4,
-                            'name' => 'Developer',
-                            'inherited' => 1,
-                        ],
-                    ],
-                ]
-            ]
-        ]);
-        $this->getRedmineProjectMembers(23)->shouldReturn([
-            'Lisa Lotte',
-            'Stan Stocks',
-        ]);
     }
 
     function it_creates_a_new_phabricator_project_from_redmine_details()
@@ -347,7 +267,7 @@ class WizardSpec extends ObjectBehavior
             ]
         ];
 
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('project.edit', [
             'objectIdentifier' => null,
@@ -390,7 +310,7 @@ class WizardSpec extends ObjectBehavior
     {
         $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('3');
         ob_start();
-        $this->selectIndexFromList('Select something', 4)->shouldReturn('3');
+        $this->selectIndexFromList('Select something:', 4)->shouldReturn('3');
         $out = ob_get_clean();
         expect($out)->toBe('Select something:' . PHP_EOL.'> ');
     }
@@ -399,7 +319,7 @@ class WizardSpec extends ObjectBehavior
     {
         $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('');
         ob_start();
-        $this->selectIndexFromList('Select something', 4, 0, true)->shouldReturn('');
+        $this->selectIndexFromList('Select something:', 4, 0, true)->shouldReturn('');
         $out = ob_get_clean();
         expect($out)->toBe('Select something:' . PHP_EOL.'> ');
     }
@@ -408,18 +328,15 @@ class WizardSpec extends ObjectBehavior
     {
         $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('4', '2');
         ob_start();
-        $this->selectIndexFromList('Select something', 2)->shouldReturn('2');
+        $this->selectIndexFromList('Select something:', 2)->shouldReturn('2');
         $out = ob_get_clean();
         expect($out)->toBe('Select something:' . PHP_EOL.'> You must select a value between 0 and 2' . PHP_EOL . 'Select something:' . PHP_EOL . '> ');
     }
 
-    /**
-     * This should rather be a functional test than a unit test though.
-     */
     function it_prints_a_message_if_the_given_project_id_does_not_exist()
     {
         $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('3', 'foobar');
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('project.search', [
             'queryKey' => 'all',
@@ -447,7 +364,7 @@ class WizardSpec extends ObjectBehavior
                 'after' => null,
             ],
         ]);
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('project.query', [
             'slugs' => ['foobar']
@@ -460,100 +377,10 @@ class WizardSpec extends ObjectBehavior
         $print = ob_get_clean();
 
         expect($print)->toBe(
-            "2 total projects retrieved.\n\n[1 – First project]\n[4 – Second project]\n\nPlease select (type) a project ID or leave empty to go back to the previous step:\n> Sorry, if a project with id 3 exists, you don't seem to have access to it. Please check your permissions and the id you specified and try again.\nPlease enter the id or slug of the project in Phabricator if you know it.\nPress\n[Enter] to see a list of available projects in Phabricator,\n[0] to create a new project from the Redmine project's details or\n[q] to quit and abort:\n> "
+            "2 total projects retrieved.\n\n[1 – First project]\n[4 – Second project]\n\nPlease select (type) a project ID or leave empty to go back to the previous step:\n> Sorry, if a project with id 3 exists, you don't seem to have access to it. Please check your permissions and the id you specified and try again.\nNow you've got to decide where to put all that stuff... decisions, decisions!\nPlease enter the id or slug of the project in Phabricator if you know it\nor press\n\t[Enter] to see a list of available projects in Phabricator,\n\t[0] to create a new project from the Redmine project's details or\n\t[q] to quit and abort\n> "
         );
     }
 
-    function it_throws_an_exception_if_no_tasks_are_found(Client $redmine, Issue $issue)
-    {
-        $redmine->api('issue')->willReturn($issue);
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->willReturn(['issues' => []]);
-
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->shouldBeCalled();
-
-        $this->shouldThrow('\Ttf\Remaim\Exception\NoIssuesFoundException')->during('getIssuesForProject', [1]);
-    }
-
-    function it_throws_an_exception_if_looking_up_tasks_failed(Client $redmine, Issue $issue)
-    {
-        $redmine->api('issue')->willReturn($issue);
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->willReturn(false);
-
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->shouldBeCalled();
-        $this->shouldThrow('\Ttf\Remaim\Exception\NoIssuesFoundException')->during('getIssuesForProject', [1]);
-    }
-
-    function it_returns_issue_details_if_issues_are_found(Client $redmine, Issue $issue)
-    {
-        $redmine->api('issue')->willReturn($issue);
-
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->willReturn([
-            'issues' => [
-                [
-                    'id' => 1,
-                    'project' => [
-                        'id' => 1,
-                        'name' => 'Test',
-                    ],
-                    'tracker' => [
-                        'id' => 1,
-                        'name' => 'Bug',
-                    ],
-                    'status' => [
-                        'id' => 1,
-                        'name' => 'New',
-                    ],
-                    'priority' => [
-                        'id' => 4,
-                        'name' => 'Normal',
-                    ],
-                ]
-            ]
-        ]);
-
-        $issue->all([
-            'project_id' => 1,
-            'limit' => 1024,
-        ])->shouldBeCalled();
-        $this->getIssuesForProject(1)->shouldReturn([
-            'issues' => [
-                [
-                    'id' => 1,
-                    'project' => [
-                        'id' => 1,
-                        'name' => 'Test',
-                    ],
-                    'tracker' => [
-                        'id' => 1,
-                        'name' => 'Bug',
-                    ],
-                    'status' => [
-                        'id' => 1,
-                        'name' => 'New',
-                    ],
-                    'priority' => [
-                        'id' => 4,
-                        'name' => 'Normal',
-                    ],
-                ],
-            ],
-        ]);
-    }
 
     function it_caches_phabricator_user_lookups()
     {
@@ -593,7 +420,7 @@ class WizardSpec extends ObjectBehavior
             'phidone',
             'phidtwo',
         ];
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('user.query', ['realnames' => $lookupone])
         ->times(1)
@@ -610,7 +437,7 @@ class WizardSpec extends ObjectBehavior
                 'name' => 'Albert Einstein',
             ]
         ];
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('user.query', ['realnames' => ['Albert Einstein']])
         ->once()
@@ -629,7 +456,7 @@ class WizardSpec extends ObjectBehavior
             'James',
             'Alfred',
         ];
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('user.query', [
             'realnames' => $lookupone
@@ -660,10 +487,10 @@ class WizardSpec extends ObjectBehavior
         ]);
         $output = ob_get_clean();
         expect($output)->toBe(
-            'We could not find a matching key for the status "Unknown"!' . PHP_EOL
+            'I was unable to find a matching key for the status "Unknown"!' . PHP_EOL
             . '[0] – open' . PHP_EOL
             . '[1] – resolved' . PHP_EOL
-            . 'Select a status to use:' . PHP_EOL
+            . 'Please indicate which status to use:' . PHP_EOL
             . '> '
         );
     }
@@ -687,10 +514,10 @@ class WizardSpec extends ObjectBehavior
         ]);
         $output = ob_get_clean();
         expect($output)->toBe(
-            'We could not find a matching key for the status "Unknown"!' . PHP_EOL
+            'I was unable to find a matching key for the status "Unknown"!' . PHP_EOL
             . '[0] – open' . PHP_EOL
             . '[1] – resolved' . PHP_EOL
-            . 'Select a status to use:' . PHP_EOL
+            . 'Please indicate which status to use:' . PHP_EOL
             . '> '
         );
     }
@@ -713,15 +540,15 @@ class WizardSpec extends ObjectBehavior
             'value' => 'open'
         ]);
         $output = ob_get_clean();
-        expect($output)->toBe('We could not find a matching key for the status "Unknown"!' . PHP_EOL
+        expect($output)->toBe('I was unable to find a matching key for the status "Unknown"!' . PHP_EOL
             . '[0] – open' . PHP_EOL
             . '[1] – resolved' . PHP_EOL
-            . 'Select a status to use:' . PHP_EOL
+            . 'Please indicate which status to use:' . PHP_EOL
             . '> '
-            . 'We could not find a matching key for the status "Unknown"!' . PHP_EOL
+            . 'I was unable to find a matching key for the status "Unknown"!' . PHP_EOL
             . '[0] – open' . PHP_EOL
             . '[1] – resolved' . PHP_EOL
-            . 'Select a status to use:' . PHP_EOL
+            . 'Please indicate which status to use:' . PHP_EOL
             . '> '
         );
     }
@@ -744,10 +571,10 @@ class WizardSpec extends ObjectBehavior
             'value' => 'open'
         ]);
         $output = ob_get_clean();
-        expect($output)->toBe('We could not find a matching key for the status "Unknown"!' . PHP_EOL
+        expect($output)->toBe('I was unable to find a matching key for the status "Unknown"!' . PHP_EOL
             . '[0] – open' . PHP_EOL
             . '[1] – resolved' . PHP_EOL
-            . 'Select a status to use:' . PHP_EOL
+            . 'Please indicate which status to use:' . PHP_EOL
             . '> '
         );
         $this->createStatusTransaction($issue)->shouldReturn([
@@ -801,11 +628,13 @@ class WizardSpec extends ObjectBehavior
             ]
         ];
 
+        ob_start();
         $this->assembleTransactionsFor(
             'PHID-random',
             $details['issue'],
             $policies
         )->shouldReturn($expectedTransactions);
+        ob_end_clean();
     }
 
     function it_generates_a_title_transaction_if_the_title_has_changed()
@@ -858,12 +687,14 @@ class WizardSpec extends ObjectBehavior
             ]
         ];
 
+        ob_start();
         $this->assembleTransactionsFor(
             'PHID-random',
             $details['issue'],
             $policies,
             $task
         )->shouldReturn($expectedTransactions);
+        ob_end_clean();
     }
 
     function it_does_not_generate_a_transaction_if_the_title_has_not_changed()
@@ -912,63 +743,23 @@ class WizardSpec extends ObjectBehavior
             ]
         ];
 
+        ob_start();
         $this->assembleTransactionsFor(
             'PHID-random',
             $details['issue'],
             $policies,
             $task
         )->shouldReturn($expectedTransactions);
+        ob_end_clean();
     }
 
-    function it_presents_a_summary_before_initiating_the_migration(Client $redmine, Project $project)
-    {
-        $project_detail = [
-            'project' => [
-                'name' => 'Redmine Project',
-            ],
-        ];
-
-        $redmine->api('project')->willReturn($project);
-        $project->show(34)->willReturn($project_detail);
-        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('y');
-
-        $phabricator_project = [
-            'name' => 'Phabricator Project',
-            'id' => 78,
-        ];
-        $policies = [
-            'view' => 'PHID-foobar',
-            'edit' => 'PHID-barbaz',
-        ];
-        $tasks = [
-            'total_count' => [10],
-        ];
-        ob_start();
-        $this->presentSummary(
-            34,
-            $phabricator_project,
-            $tasks,
-            $policies
-        )->shouldReturn(true);
-        $output = ob_get_clean();
-        expect($output)->toBe(PHP_EOL . PHP_EOL .
-            '####################' . PHP_EOL .
-            '# Pre-flight check #' . PHP_EOL .
-            '####################' . PHP_EOL .
-            'Redmine project named "Redmine Project" with ID 34.' . PHP_EOL .
-            'Target phabricator project named "Phabricator Project" with ID 78.' . PHP_EOL .
-            'View policy: PHID-foobar, Edit policy: PHID-barbaz' . PHP_EOL .
-            '10 tickets to be migrated!' . PHP_EOL . PHP_EOL . 'OK to continue? [y/N]:' . PHP_EOL .
-            '> '
-        );
-    }
 
     function it_forces_a_specific_protocol_if_it_has_been_set_in_the_config()
     {
         $mock = PHPMockery::mock('\Ttf\Remaim\Traits', 'file_get_contents')->andReturn('blablabla');
         $details = [
             'issue' => [
-                'subject' => 'Test Subject',
+                'subject' => 'Force protocol test',
                 'attachments' => [
                     [
                         'filename' => 'Testfile.png',
@@ -983,7 +774,7 @@ class WizardSpec extends ObjectBehavior
             ]
         ];
 
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('file.upload', [
                 'name' => 'Testfile.png',
@@ -993,7 +784,7 @@ class WizardSpec extends ObjectBehavior
         ->once()
         ->andReturn('PHID-file-xyz');
 
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('file.info', [
                 'phid' => 'PHID-file-xyz',
@@ -1016,7 +807,7 @@ class WizardSpec extends ObjectBehavior
         $mock = PHPMockery::mock('\Ttf\Remaim\Traits', 'file_get_contents')->andReturn('blablabla');
         $details = [
             'issue' => [
-                'subject' => 'Test Subject',
+                'subject' => 'File upload test',
                 'attachments' => [
                     [
                         'filename' => 'Testfile.png',
@@ -1035,7 +826,7 @@ class WizardSpec extends ObjectBehavior
             'edit' => 'PHID-barbaz',
         ];
 
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('file.upload', [
                 'name' => 'Testfile.png',
@@ -1045,7 +836,7 @@ class WizardSpec extends ObjectBehavior
         ->once()
         ->andReturn('PHID-file-xyz');
 
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('file.info', [
                 'phid' => 'PHID-file-xyz',
@@ -1062,7 +853,7 @@ class WizardSpec extends ObjectBehavior
             ],
             [
                 'type' => 'title',
-                'value' => 'Test Subject',
+                'value' => 'File upload test',
             ],
             [
                 'type' => 'description',
@@ -1090,232 +881,11 @@ class WizardSpec extends ObjectBehavior
         )->shouldReturn($expectedTransactions);
     }
 
-    function it_handles_redmine_journals_and_transforms_them_into_comments()
-    {
-        $issue = [
-            'subject' => 'Test Subject',
-            'attachments' => [],
-            'status' => [
-                'id' => 1,
-                'name' => 'Resolved',
-            ],
-            'description' => 'A random description of a task',
-            'journals' => [
-                [
-                    'id' => 6535,
-                    'user' => [
-                        'id' => 24,
-                        'name' => 'Albert Einstein',
-                    ],
-                    'notes' => 'A comment _someone_ made with @code@',
-                    'created_on' => '2015-04-27T15:55:47Z',
-                    'details' => [
-                        [
-                            'property' => 'attr',
-                            'name' => 'done_ratio',
-                            'old_value' => 90,
-                            'new_value' => 100
-                        ]
-                    ]
-                ]
-            ]
-        ];
-        $policies = [
-            'view' => 'PHID-foobar',
-            'edit' => 'PHID-barbaz',
-        ];
-
-        $expectedTransactions = [
-            [
-                'type' => 'projects.set',
-                'value' => ['PHID-random'],
-            ],
-            [
-                'type' => 'title',
-                'value' => 'Test Subject',
-            ],
-            [
-                'type' => 'description',
-                'value' => "A random description of a task",
-            ],
-            [
-                'type' => 'status',
-                'value' => 'resolved',
-            ],
-            [
-                'type' => 'comment',
-                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment //someone// made with `code`\nand:\n - changed done from 90% to 100%"
-            ],
-            [
-                'type' => 'view',
-                'value' => 'PHID-foobar',
-            ],
-            [
-                'type' => 'edit',
-                'value' => 'PHID-barbaz',
-            ],
-        ];
-
-        $this->assembleTransactionsFor(
-            'PHID-random',
-            $issue,
-            $policies,
-            []
-        )->shouldReturn($expectedTransactions);
-    }
-
-    function it_handles_redmine_journals_and_transforms_details_into_comment_addons()
-    {
-        $issue = [
-            'subject' => 'Test Subject',
-            'attachments' => [],
-            'status' => [
-                'id' => 1,
-                'name' => 'Resolved',
-            ],
-            'description' => 'A random description of a task',
-            'journals' => [
-                [
-                    'id' => 6535,
-                    'user' => [
-                        'id' => 24,
-                        'name' => 'Albert Einstein',
-                    ],
-                    'notes' => 'A comment someone made',
-                    'created_on' => '2015-04-27T15:55:47Z',
-                    'details' => [
-                        [
-                            'property' => 'cf',
-                            'name' => '1',
-                            'old_value' => 'old',
-                            'new_value' => 'new'
-                        ]
-                    ]
-                ]
-            ]
-        ];
-        $policies = [
-            'view' => 'PHID-foobar',
-            'edit' => 'PHID-barbaz',
-        ];
-
-        $expectedTransactions = [
-            [
-                'type' => 'projects.set',
-                'value' => ['PHID-random'],
-            ],
-            [
-                'type' => 'title',
-                'value' => 'Test Subject',
-            ],
-            [
-                'type' => 'description',
-                'value' => "A random description of a task",
-            ],
-            [
-                'type' => 'status',
-                'value' => 'resolved',
-            ],
-            [
-                'type' => 'comment',
-                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment someone made\nand:\n - changed \"Billed\" from \"old\" to \"new\""
-            ],
-            [
-                'type' => 'view',
-                'value' => 'PHID-foobar',
-            ],
-            [
-                'type' => 'edit',
-                'value' => 'PHID-barbaz',
-            ],
-        ];
-
-        $this->assembleTransactionsFor(
-            'PHID-random',
-            $issue,
-            $policies,
-            []
-        )->shouldReturn($expectedTransactions);
-    }
-
-    function it_saves_unknown_redmine_journals_entries_into_serialed_data()
-    {
-        $issue = [
-            'subject' => 'Test Subject',
-            'attachments' => [],
-            'status' => [
-                'id' => 1,
-                'name' => 'Resolved',
-            ],
-            'description' => 'A random description of a task',
-            'journals' => [
-                [
-                    'id' => 6535,
-                    'user' => [
-                        'id' => 24,
-                        'name' => 'Albert Einstein',
-                    ],
-                    'notes' => 'A comment someone made',
-                    'created_on' => '2015-04-27T15:55:47Z',
-                    'details' => [
-                        [
-                            'property' => 'attr',
-                            'name' => 'unknown',
-                            'unknown_property' => true
-                        ]
-                    ]
-                ]
-            ]
-        ];
-        $policies = [
-            'view' => 'PHID-foobar',
-            'edit' => 'PHID-barbaz',
-        ];
-
-        $expectedTransactions = [
-            [
-                'type' => 'projects.set',
-                'value' => ['PHID-random'],
-            ],
-            [
-                'type' => 'title',
-                'value' => 'Test Subject',
-            ],
-            [
-                'type' => 'description',
-                'value' => "A random description of a task",
-            ],
-            [
-                'type' => 'status',
-                'value' => 'resolved',
-            ],
-            [
-                'type' => 'comment',
-                'value' => "On Monday, April 27th 2015 15:55:47, Albert Einstein wrote:\n > A comment someone made\nand:\n - changed another property I don't know about: a:3:{s:8:\"property\";s:4:\"attr\";s:4:\"name\";s:7:\"unknown\";s:16:\"unknown_property\";b:1;}"
-            ],
-            [
-                'type' => 'view',
-                'value' => 'PHID-foobar',
-            ],
-            [
-                'type' => 'edit',
-                'value' => 'PHID-barbaz',
-            ],
-        ];
-        ob_start();
-        $this->assembleTransactionsFor(
-            'PHID-random',
-            $issue,
-            $policies,
-            []
-        )->shouldReturn($expectedTransactions);
-        ob_end_clean();
-    }
 
     function it_transforms_watchers_into_subscribers()
     {
         $issue = [
-            'subject' => 'Test Subject',
+            'subject' => 'Transform watchers into subscribers',
             'attachments' => [],
             'status' => [
                 'id' => 1,
@@ -1346,7 +916,7 @@ class WizardSpec extends ObjectBehavior
             ],
             [
                 'type' => 'title',
-                'value' => 'Test Subject',
+                'value' => 'Transform watchers into subscribers',
             ],
             [
                 'type' => 'description',
@@ -1373,7 +943,7 @@ class WizardSpec extends ObjectBehavior
             ],
         ];
 
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('user.query', [
             'realnames' => [
@@ -1404,7 +974,8 @@ class WizardSpec extends ObjectBehavior
     function it_creates_a_new_task_if_no_match_is_found_in_phabricator()
     {
         $issue = [
-            'subject' => 'Test Subject',
+            'id' => 1,
+            'subject' => 'Create a new task',
             'attachments' => [],
             'status' => [
                 'id' => 1,
@@ -1418,7 +989,7 @@ class WizardSpec extends ObjectBehavior
         ];
 
         $result = [
-            'title' => 'Test Subject',
+            'title' => 'Create a new task',
             'description' => 'A random description of a task',
             'ownerPHID' => 'PHID-owner',
             'priority' => 100,
@@ -1432,7 +1003,7 @@ class WizardSpec extends ObjectBehavior
             'phid' => 'PHID-owner',
         ];
 
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('maniphest.query', [
             'projectPHIDs' => ['PHID-project'],
@@ -1441,7 +1012,7 @@ class WizardSpec extends ObjectBehavior
         ->once()
         ->andReturn([]);
 
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with(
             'maniphest.edit',
@@ -1450,18 +1021,59 @@ class WizardSpec extends ObjectBehavior
         ->once()
         ->andReturn($result);
 
+        ob_start();
         $this->createManiphestTask(
             $issue,
             $owner,
             'PHID-project',
             $policies
         )->shouldReturn($result);
+        ob_end_clean();
+    }
+
+    function it_strips_non_word_characters_from_an_issue_description_for_fullText_search()
+    {
+        $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('0');
+        $issue = [
+            'id' => 1,
+            'subject' => 'Test Subject',
+            'attachments' => [],
+            'status' => [
+                'id' => 1,
+                'name' => 'Resolved',
+            ],
+            'description' => 'A random description of a task that includes +- 2 special chars that have meaning in mySQL fulltext search indices.',
+        ];
+        $this->container['conduit']
+        ->shouldReceive('callMethodSynchronous')
+        ->with('maniphest.query', [
+            'projectPHIDs' => ['PHID-project'],
+            'fullText' => 'A random description of a task that includes 2 special chars that have meaning in mySQL fulltext search indices '
+        ])
+        ->once()
+        ->andReturn([
+            [
+                'id' => 1,
+                'statusName' => 'Resolved',
+                'title' => 'Test Subject',
+                'description' => 'A random description of a task that includes +- 2 special chars that have meaning in mySQL fulltext search indices.',
+            ]
+        ]);
+        // ob_start();
+        $this->findExistingTask($issue, 'PHID-project')->shouldReturn([
+            'id' => 1,
+            'statusName' => 'Resolved',
+            'title' => 'Test Subject',
+            'description' => 'A random description of a task that includes +- 2 special chars that have meaning in mySQL fulltext search indices.',
+        ]);
+        // ob_end_clean();
     }
 
     function it_asks_which_task_to_update_if_more_than_one_existing_task_is_found()
     {
         $mock = PHPMockery::mock('\Ttf\Remaim', 'fgets')->andReturn('0');
         $issue = [
+            'id' => 1,
             'subject' => 'Test Subject',
             'attachments' => [],
             'status' => [
@@ -1470,7 +1082,7 @@ class WizardSpec extends ObjectBehavior
             ],
             'description' => 'A random description of a task',
         ];
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('maniphest.query', [
             'projectPHIDs' => ['PHID-project'],
@@ -1501,14 +1113,14 @@ class WizardSpec extends ObjectBehavior
         ]);
         $prompt = ob_get_clean();
         expect($prompt)->toBe(
-            "Oops, I found more than one already existing task in phabricator.\nPlease indicate which one to update.\n[0] =>\t[ID]: T1\n\t[Status]: Resolved\n\t[Name]: Test Subject\n\t[Description]: A random description of a task\n[1] =>\t[ID]: T2\n\t[Status]: Open\n\t[Name]: Similar Task Subject\n\t[Description]: A random description of a task\nEnter the [index] of the task you would like to use:\n> "
+            "Oops, looks like I found more than one existing task in Phabricator that matches the following one:\n\n[#1] \"Test Subject\"\nDescription (shortnd.): \n\nPlease indicate which one to update or press Enter to create a new task.\n[0] =>\t[ID]: T1\n\t[Status]: Resolved\n\t[Name]: Test Subject\n\t[Description]: A random description of a task\n[1] =>\t[ID]: T2\n\t[Status]: Open\n\t[Name]: Similar Task Subject\n\t[Description]: A random description of a task\n[2] =>\tSKIP this issue.\n\tSelect this entry to entirely skip this issue, not updating any of the above Maniphest tasks.\n\tNote: If you run remaim with the -r flag, this behavior will be the default when I encounter existing tasks.\n\nZOMG, what shall I do?\n> "
         );
     }
 
     function it_updates_the_task_if_only_one_is_found_in_phabricator()
     {
         $issue = [
-            'subject' => 'Test Subject',
+            'subject' => 'Only one is found',
             'attachments' => [],
             'status' => [
                 'id' => 1,
@@ -1516,7 +1128,7 @@ class WizardSpec extends ObjectBehavior
             ],
             'description' => 'A random description of a task',
         ];
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with('maniphest.query', [
             'projectPHIDs' => ['PHID-project'],
@@ -1527,21 +1139,21 @@ class WizardSpec extends ObjectBehavior
             [
                 'id' => 1,
                 'statusName' => 'Resolved',
-                'title' => 'Test Subject',
+                'title' => 'Only one is found',
                 'description' => 'A random description of a task',
             ]
         ]);
         $this->findExistingTask($issue, 'PHID-project')->shouldReturn([
             'id' => 1,
             'statusName' => 'Resolved',
-            'title' => 'Test Subject',
+            'title' => 'Only one is found',
             'description' => 'A random description of a task',
         ]);
     }
 
     function it_paginates_trough_all_the_results_if_there_are_more_than_100()
     {
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with(
             'project.search',
@@ -1558,7 +1170,7 @@ class WizardSpec extends ObjectBehavior
             ]
         ]);
 
-        $this->conduit
+        $this->container['conduit']
         ->shouldReceive('callMethodSynchronous')
         ->with(
             'project.search',
