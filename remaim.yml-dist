@@ -3,6 +3,7 @@ redmine:
   protocol:
   user:
   password:
+  token: (Choose either user and password OR token)
 phabricator:
   host: https://cator.1024.lu
   token:

@@ -4,7 +4,7 @@
  *
  * @package Ttf\Remaim
  *
- * @version  0.3.0
+ * @version  0.4.0
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -56,6 +56,7 @@ class Wizard
         $this->redmine = $c['redmine'];
         $this->priority_map = $this->config['priority_map'];
         try {
+            $this->whoami = $this->fetchUserInformation();
             $this->status_map = $this->fetchPhabricatorStati();
         } catch (\HTTPFutureCURLResponseStatus $e) {
             fwrite(
@@ -68,6 +69,11 @@ class Wizard
             );
             exit(1);
         }
+    }
+
+    private function fetchUserInformation()
+    {
+        return $this->conduit->callMethodSynchronous('user.whoami', []);
     }
 
     /**
@@ -311,7 +317,7 @@ class Wizard
      * be used for view and edit policies for both
      * projects and tasks creaed in maniphest.
      *
-     * @param  array $groups Groups found by self::lookupGroupPojects()
+     * @param  array $groups Groups found by self::lookupGroupPojectscreateOrUpdatePhabTicket()
      *
      * @return array         Array containing PHIDs for view and edit policies
      */
@@ -333,7 +339,7 @@ class Wizard
             );
         }
         $index = $this->selectIndexFromList(
-            'Select a group to get view and edit permissions',
+            'Select a group to give view and edit permissions to',
             $i
         );
         $groupproject = $groups['data'][$index];
@@ -429,17 +435,50 @@ class Wizard
         $policies,
         $resume = false
     ) {
-        return array_map(function ($issue) use ($ph_project, $policies, $resume) {
+        $phidmap = [];
+        return array_map(function ($issue) use ($ph_project, $policies, $resume, &$phidmap) {
             $details = $this->redmine->getIssueDetail($issue['id']);
             $owner = $this->grabOwnerPhid($details['issue']);
-            return $this->createManiphestTask(
+            $parent_phid = $this->lookupParentPhid($issue, $phidmap);
+            $maniphest = $this->createManiphestTask(
                 $details['issue'],
                 $owner,
                 $ph_project['phid'],
                 $policies,
-                $resume
+                $resume,
+                $parent_phid
             );
+            $phidmap[$issue['id']] = $maniphest['object']['phid'];
+            return $maniphest;
         }, $issues);
+    }
+
+    /**
+     * If the redmine issue defines a parent_id, attempt to look up
+     * the parent phid in phabricator.
+     *
+     * @param  [type] $issue   [description]
+     * @param  [type] $phidmap [description]
+     * @return [type]          [description]
+     */
+    private function lookupParentPhid($issue, $phidmap)
+    {
+        if (isset($issue['parent'])) {
+            if (array_key_exists($issue['parent']['id'], $phidmap)) {
+                return $phidmap[$issue['parent']['id']];
+            } else {
+                printf(
+                    'Pointed to an unknown parent task with id "%d". We don\'t support out of order creation of parent objects yet. Maybe help us with that? See the github issue list!',
+                    $issue['parent']['id']
+                );
+                // There should be a parent ticket, but it's not been created yet.
+                // What should we do in that situation?
+                // Put such tickets into a new buffer and re-iterate over it?
+                // That won't work with an array_map
+                return null;
+            }
+        }
+        return null;
     }
 
     /**
@@ -451,7 +490,7 @@ class Wizard
      * @param  string $owner        PHID identifying a potential task assignee
      * @param  string $project_phid PHID identifying a project in Phabricator
      * @param  array  $policies     List of policies to apply to the task
-     * @param  bool   $resume       Whether we wish to resume a previous run and ignore already existing tasks
+     * @param  bool   $resume       Whether we wish to resume a previous run and ignore already existing tasks instead of updating them.
      *
      * @return array                Details of maniphest.edit operation
      */
@@ -460,7 +499,8 @@ class Wizard
         $owner,
         $project_phid,
         $policies,
-        $resume = false
+        $resume = false,
+        $parent_phid = null
     ) {
         $task = $this->findExistingTask($issue, $project_phid, $resume);
 
@@ -485,7 +525,8 @@ class Wizard
             $issue,
             $policies,
             $task,
-            $owner
+            $owner,
+            $parent_phid
         );
 
         return $this->createOrUpdatePhabTicket($transactions, $task);
@@ -508,7 +549,8 @@ class Wizard
         $issue,
         $policies,
         $task = [],
-        $assignee = false
+        $assignee = null,
+        $parent_phid = null
     ) {
         $transactions = [];
         $transactions[] = $this->createProjectTransaction($project_phid);
@@ -529,9 +571,15 @@ class Wizard
             $transactions[] = $this->createOwnerTransaction($assignee);
         }
 
+        // ERR-CONDUIT-CORE: Validation errors:
+        // - You can only select a parent task when creating a transaction for the first time.
+        if (empty($task) && $parent_phid && !empty($parent_phid)) {
+            $transactions[] = $this->createParentTransaction($parent_phid);
+        }
+
         $transactions = array_merge(
             $transactions,
-            $this->createCommentTransactions($issue)
+            $this->createCommentTransactions($issue, $parent_phid)
         );
 
         $transactions = array_merge(
