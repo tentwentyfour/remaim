@@ -5,7 +5,7 @@
  *
  * @package Ttf\Remaim
  *
- * @version  0.3.0 Adolescent rewrite (pimple)
+ * @version  0.4.0 Use the search, Luke!
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -24,7 +24,7 @@ require_once '/usr/share/libphutil/src/__phutil_library_init__.php';
 use Pimple\Container;
 use Redmine\Client;
 
-use Symfony\Component\Yaml\Parser;
+use Symfony\Component\Yaml\Parser as YamlParser;
 use Symfony\Component\Yaml\Exception\ParseException;
 
 use Ttf\Remaim\Wizard;
@@ -40,8 +40,25 @@ try {
         $resume = true;
     }
     $container = new Container();
-    $yaml = new Parser();
-    $container['config'] = $yaml->parse(file_get_contents(__DIR__ . '/../remaim.yml'));
+    $yaml = new YamlParser();
+    $config = $yaml->parse(file_get_contents(__DIR__ . '/../remaim.yml'));
+    /**
+     * Check if configuration is sane.
+     */
+    if (!isset($config['redmine']['token'])
+        && (!isset($config['redmine']['user']) || !isset($config['redmine']['password']))
+    ) {
+        print('We expect either a redmine API token or a username and password before we can continue.');
+        exit(1);
+    }
+
+    // "Normalize" redmine authentication credentials
+    if (!isset($config['redmine']['password'])) {
+        $config['redmine']['user'] = $config['redmine']['token'];
+        $config['redmine']['password'] = null;
+    }
+
+    $container['config'] = $config;
 } catch (ParseException $e) {
     printf(
         'Unable to parse the YAML string: %s',
@@ -51,7 +68,7 @@ try {
 }
 
 /**
- * Services
+ * Create services, adding them to the service container.
  */
 $container['redmine_client'] = function ($c) {
     return new Client(
@@ -62,7 +79,8 @@ $container['redmine_client'] = function ($c) {
 };
 
 $container['redmine'] = function ($c) {
-    return new RedmineFacade($c['redmine_client']);
+    $limit = isset($c['config']['redmin']['limit']) ? $c['config']['redmin']['limit'] : null;
+    return new RedmineFacade($c['redmine_client'], $limit);
 };
 
 $container['conduit'] = function ($c) {
