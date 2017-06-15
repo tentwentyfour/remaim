@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.3.0
+ * @version  0.4.0
  * @since    0.2.0 The adolescent years
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -39,7 +39,7 @@ class Journal
      *
      * @return String         Maniphest comment
      */
-    public function transform(array $entry, $project_id)
+    public function transform(array $entry, $project_id, $parent_phid = null)
     {
         if ((!isset($entry['notes']) || empty($entry['notes']))
             && (!isset($entry['details']) || empty($entry['details']))
@@ -71,24 +71,27 @@ class Journal
         if (!empty($entry['details'])) {
             $comment .= PHP_EOL . implode(
                 PHP_EOL,
-                $this->recountStory($entry['details'], $project_id)
+                $this->recountStory($entry['details'], $project_id, $parent_phid)
             );
         }
         return $comment;
     }
 
     /**
-     * Recreate issue history based on detailed journal actions
+     * Recreate issue history based on detailed journal actions.
+     * Handles default redmine fields as well as custom fields.
      *
-     * @param  array $details   Detailed actions taken
+     * @param  array  $details     Detailed actions taken
+     * @param  int    $project_id  Project id
+     * @param  string $parent_phid PHID of parent task (if set)
      *
      * @return array            Parsed, verbose action story
      */
-    public function recountStory($details, $project_id)
+    public function recountStory($details, $project_id, $parent_phid = null)
     {
-        return array_map(function ($action) use ($project_id) {
+        return array_map(function ($action) use ($project_id, $parent_phid) {
             if ($action['property'] === 'attr') {
-                return $this->parseAttributeAction($action, $project_id);
+                return $this->parseAttributeAction($action, $project_id, $parent_phid);
             } elseif ($action['property'] === 'cf') {
                 if (isset($action['old_value']) && !empty($action['old_value'])) {
                     return sprintf(
@@ -128,7 +131,7 @@ class Journal
      *
      * @return String        Textual representation of the action
      */
-    public function parseAttributeAction($action, $project_id)
+    public function parseAttributeAction($action, $project_id, $parent_phid = null)
     {
         switch ($action['name']) {
             case 'due_date':
@@ -153,6 +156,15 @@ class Journal
                     $action,
                     'getTrackerById'
                 );
+                break;
+            case 'parent_id':
+                $formats = [
+                    ' - set this task as a sub-task of "%s"',
+                    ' - changed the parent task to "%s"',
+                    ' - removed the child relation to parent task "%s"',
+                    ' - removed the child relation',
+                ];
+                $action = $this->retrieveParentTask($action, $parent_phid);
                 break;
             case 'status_id':
                 $formats = [
@@ -188,6 +200,8 @@ class Journal
                 $formats = [
                     ' - set category to "%s"',
                     ' - changed category from "%s" to "%s"',
+                    ' - removed the category "%s"',
+                    ' - unset the category',
                 ];
                 $action = $this->convert(
                     $action,
@@ -385,6 +399,36 @@ class Journal
                         [$this->container['redmine'], $converter],
                         $params
                     )
+                );
+            }
+        }
+        return $action;
+    }
+
+    /**
+     * Very ungeneric method to retrieve information about a Phabricator task.
+     *
+     * @param  array  $action      The action performed in this journal entry
+     * @param  string $parent_phid Parent task PHID
+     *
+     * @return string              Concatenated task ID and name
+     */
+    public function retrieveParentTask($action, $parent_phid)
+    {
+        foreach (['old_value', 'new_value'] as $key) {
+            if (isset($action[$key])) {
+                $result = $this->container['conduit']->callMethodSynchronous(
+                    'maniphest.search', [
+                        'constraints' => [
+                            'phids' => [$parent_phid],
+                        ]
+                    ]
+                );
+                $parent = $result['data'][0];
+                $action[$key] = sprintf(
+                    'T%s - %s',
+                    $parent['id'],
+                    $parent['fields']['name']
                 );
             }
         }

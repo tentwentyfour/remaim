@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.2.0
+ * @version  0.4.0
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -32,18 +32,11 @@ trait FileManager
     public function uploadFiles($issue, $policy)
     {
         return array_map(function ($attachment) use ($policy) {
-            $url = preg_replace(
-                '/http(s?):\/\//',
-                sprintf(
-                    '%s://%s:%s@',
-                    empty($this->config['redmine']['protocol']) ? 'http${1}' : $this->config['redmine']['protocol'],
-                    $this->config['redmine']['user'],
-                    $this->config['redmine']['password']
-                ),
-                $attachment['content_url']
+            $components = parse_url($attachment['content_url']);
+            $encoded = base64_encode(
+                $this->redmine->get($components['path'], false)
             );
 
-            $encoded = base64_encode(file_get_contents($url));
             $file_phid = $this->conduit->callMethodSynchronous(
                 'file.upload',
                 [
