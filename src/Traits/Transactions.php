@@ -3,7 +3,7 @@
  * ReMaIm – Redmine to Phabricator Importer
  *
  * @package Ttf\Remaim
- * @version  0.3.0
+ * @version  0.4.0
  * @since    0.0.1 First public release
  *
  * @author  Jonathan Jin <jonathan@tentwentyfour.lu>
@@ -62,8 +62,7 @@ trait Transactions
         if (!array_key_exists($prio, $this->priority_map)) {
             printf(
                 'We could not find a matching priority for your priority "%s"!'
-                . PHP_EOL
-                . '> ',
+                . PHP_EOL,
                 $prio
             );
             $i = 0;
@@ -81,7 +80,7 @@ trait Transactions
                     $prio
                 )
             );
-            $weigths = array_values($this->priority_map);
+            $weights = array_values($this->priority_map);
             $this->priority_map[$prio] = $weights[$selected];
         }
 
@@ -114,8 +113,22 @@ trait Transactions
         }
     }
 
+    public function mapUsers(array $redmine_users)
+    {
+        $users = [];
+        foreach ($redmine_users as $user) {
+            if (!isset($user['name']) || empty($user['name'])) {
+                continue;
+            }
+            $users[] = $user['name'];
+        }
+        return $this->getPhabricatorUserPhid($users);
+    }
+
     /**
      * Retrieve Phabricator PHIDs for users in redmine watcher list
+     *
+     * @deprecated 0.4.0 Use Transactions::mapUsers instead.
      *
      * @param  array $redmine_watchers List of users watching a given Redmine issue
      *
@@ -123,14 +136,7 @@ trait Transactions
      */
     public function watchersToSubscribers($redmine_watchers)
     {
-        $watchers = [];
-        foreach ($redmine_watchers as $watcher) {
-            if (!isset($watcher['name']) || empty($watcher['name'])) {
-                continue;
-            }
-            $watchers[] = $watcher['name'];
-        }
-        return $this->getPhabricatorUserPhid($watchers);
+        return $this->mapUsers($redmine_watchers);
     }
 
     /**
@@ -144,7 +150,7 @@ trait Transactions
      *
      * @return array        A set of transactions of comments
      */
-    public function createCommentTransactions($issue)
+    public function createCommentTransactions($issue, $parent_phid = null)
     {
         if (!isset($issue['journals'])) {
             return [];
@@ -153,7 +159,7 @@ trait Transactions
         $transactions = [];
         foreach ($issue['journals'] as $entry) {
             $journal = $this->container['journal'];
-            $comment = $journal->transform($entry, $this->redmine_project);
+            $comment = $journal->transform($entry, $this->redmine_project, $parent_phid);
 
             $transactions[] = [
                 'type' => 'comment',
@@ -161,6 +167,21 @@ trait Transactions
             ];
         }
         return $transactions;
+    }
+
+    /**
+     * Create a transaction defining the parent of this task.
+     *
+     * @param  string $parent_phid PHID of the parent task
+     *
+     * @return array               Array containing a parent transaction
+     */
+    public function createParentTransaction($parent_phid)
+    {
+        return [
+            'type' => 'parent',
+            'value' => $parent_phid,
+        ];
     }
 
 
@@ -223,7 +244,7 @@ trait Transactions
         $file_ids = $this->uploadFiles($issue, $policies['view']);
 
         if (empty($file_ids)
-            && (!empty($task) && $description === $task['description'])
+            && (!empty($task) && $description === $task['fields']['description']['raw'])
         ) {
             return [];
         }
@@ -250,7 +271,7 @@ trait Transactions
      */
     public function createTitleTransaction($issue, $task)
     {
-        if (empty($task) || $task['title'] !== $issue['subject']) {
+        if (empty($task) || $task['fields']['name'] !== $issue['subject']) {
             return [
                 'type' => 'title',
                 'value' => $issue['subject'],

@@ -22,7 +22,7 @@
         "php":                      "^5.6 || ^7.0",
         "kbsali/redmine-api":       "~1.0",
         "symfony/yaml":             "~3.0",
-        "pimple/pimple": "~3.0"
+        "pimple/pimple":            "~3.0"
     },
 
     "require-dev": {

@@ -26,7 +26,7 @@ class Redmine
 {
     use \Ttf\Remaim\Traits\ProjectList;
 
-
+    // buffers
     private $custom_fields = [];
     private $issue_stati = [];
     private $issue_categories = [];
@@ -34,10 +34,34 @@ class Redmine
     private $versions = [];
     private $projects = [];
     private $users = [];
+    private $issues = [];
 
-    public function __construct(Client $client)
+    private $limit = 1024;
+    private $redmine;
+
+    public function __construct(Client $client, $limit = null)
     {
         $this->redmine = $client;
+        $limit !== null && $this->limit = $limit;
+    }
+
+    /**
+     * Forward any calls we don't know about to the actual
+     * redmine client.
+     *
+     * @param  string $method    The method called
+     * @param  array  $arguments Arguments passed to the method
+     *
+     * @return misc              Return whatever the called method returned
+     */
+    public function __call($method, $arguments)
+    {
+        if (method_exists($this->redmine, $method)) {
+            return call_user_func_array(
+                [$this->redmine, $method],
+                $arguments
+            );
+        }
     }
 
     /**
@@ -122,7 +146,7 @@ class Redmine
     {
         if (!array_key_exists($project_id, $this->projects)) {
             $this->projects[$project_id] = $this->redmine->project->show($project_id);
-        }        
+        }
         return $this->projects[$project_id];
     }
 
@@ -148,7 +172,10 @@ class Redmine
     }
 
     /**
-     * Retrieve all Issues for a given Redmine project
+     * Retrieve all Issues for a given Redmine project.
+     * We sort them by id, ascending to increase the chance
+     * of importing parent tasks first (so we need to loop less often through
+     * the task list).
      *
      * @param  Integer $project_id The Redmine project ID
      *
@@ -158,7 +185,8 @@ class Redmine
     {
         $tasks = $this->redmine->issue->all([
             'project_id' => $project_id,
-            'limit' => 1024
+            'limit' => $this->limit,
+            'sort' => 'id:asc',
         ]);
 
         if (!$tasks || empty($tasks['issues'])) {
@@ -205,6 +233,19 @@ class Redmine
             $this->users[$id] = $this->redmine->user->show($id);
         }
         return $this->users[$id];
+    }
+
+    /**
+     * Fetch Redmine task name by its ID
+     *
+     * @return string   Task name
+     */
+    public function getTaskById($id)
+    {
+        if (!array_key_exists($id, $this->issues)) {
+            $this->issues[$id] = $this->redmine->issue->show($id);
+        }
+        return $this->issues[$id];
     }
 
     /**
