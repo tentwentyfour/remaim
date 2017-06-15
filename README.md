@@ -38,14 +38,7 @@ phabricator credentials
 2. Run `php bin/remaim`
 
 
-Forcing protocols
------------------
-
-Sometimes, Redmine will return attachment URLs using the http protocol, even though your instance is only reachable via https (Usually when you're using a reverse proxy and didn't set https to yes in the redmine configuration).
-
-In that case, you need to specify a `protocol` in the config file's Redmine section to have `remaim` modify it before retrieving attachments.
-
-If you leave the `protocol` field empty, remaim will use the protocol returned by Redmine.
+_Note_: If you're using an API key for redmine, use the `token` key instead of `user` and `password`. Be advised though that, if you're using _Basic Auth_ in front of your redmine installation, only user and password will work.
 
 
 Running tests
@@ -74,4 +67,5 @@ Plus, finishing ALL the things we would like to see would really take a long tim
 Changelog
 ---------
 
-- 0.3.0 – introduces a new `Journal` class to handle the journal of actions on each Redmine issue. Each entry is handled seperately and then converted into a Maniphest update.
+- 0.4.0 – switched to `maniphest.search` to search for existing tickets and removed the need to force protocols for file downloads. Added support for parent_id journal entries.
+- 0.3.0 – introduces a new `Journal` class to handle the journal of actions on each Redmine issue. Each entry is handled separately and then converted into a Maniphest update.

@@ -258,34 +258,44 @@ trait Phabricator
     }
 
     /**
-     * Finds tasks that have already been imported to phabricator based on their description
-     * or, if the description is empty their title.
+     * Finds tasks that have already been imported to Phabricator
+     * based on several properties.
      *
+     * Note that we also use the assigned user to determine whether there are any
+     * existing tickets. In case the assignee has changed since this ticket was
+     * first imported, we prefer to create a new one (and have someone merge it
+     * manually later on) than to override changes that were made.
      *
-     * @param  array $issue  Redmine issue description
-     * @param  bool  $resume Whether this is a resume run or not
+     * @param  array  $issue         Redmine issue description
+     * @param  string $project_phid  Phabricator project ID
+     * @param  bool   $resume        Whether this is a resume run or not
      *
      * @return array|bool    Can return misc values based on the current mode
      */
     public function findExistingTask($issue, $project_phid, $resume = false)
     {
-        $tasks = [];
-        if (!empty($issue['description']) || !empty($issue['subject'])) {
-            $issue['description'] = !empty($issue['description']) ? $this->textileToMarkdown($issue['description']) : '';
-            $lookup = empty($issue['description']) ? $issue['subject'] : $issue['description'];
-            $tasks = $this->conduit->callMethodSynchronous(
-                'maniphest.query',
+        $candidates = [];
+        if (!empty($issue['subject'])) {
+            $subscribers = $this->watchersToSubscribers($issue['watchers']);
+            $search_result = $this->conduit->callMethodSynchronous(
+                'maniphest.search',
                 [
-                    'projectPHIDs' => [$project_phid],
-                    'fullText' => preg_replace('/[^\p{L}\p{N}_]+/u', ' ', $lookup),
+                    'constraints' => [
+                        'fulltext' => preg_replace('/[^\p{L}\p{N}_]+/u', ' ', $issue['subject']),
+                        'authorPHIDs' => [$this->whoami['phid']],
+                        'assigned' => isset($issue['assigned_to']) ? $this->mapUsers([$issue['assigned_to']['name']]) : [],
+                        'subscribers' => $subscribers,
+                        'projects' => [$project_phid],
+                   ]
                 ]
             );
+            $candidates = $search_result['data'];
         }
 
-        $num_found = sizeof($tasks);
-        if ($resume && !empty($tasks)) {
+        $num_found = sizeof($candidates);
+        if ($resume && !empty($candidates)) {
             return false;
-        } elseif (!empty($tasks) && $num_found > 1) {
+        } elseif (!empty($candidates) && $num_found > 1) {
             printf(
                 'Oops, looks like I found more than one existing task in Phabricator that matches the following one:'
                 . PHP_EOL . PHP_EOL
@@ -300,14 +310,14 @@ trait Phabricator
                 empty($issue['description']) ? '[No description]' : substr($issue['description'], 200)
             );
             $i = 0;
-            foreach ($tasks as $task) {
+            foreach ($candidates as $task) {
                 printf(
                     "[%d] =>\t[ID]: T%d\n\t[Status]: %s\n\t[Name]: %s\n\t[Description]: %s\n",
                     $i++,
                     $task['id'],
-                    $task['statusName'],
-                    $task['title'],
-                    $task['description']
+                    $task['fields']['status']['name'],
+                    $task['fields']['name'],
+                    $task['fields']['description']['raw']
                 );
             }
             printf(
@@ -324,18 +334,18 @@ trait Phabricator
                 0,
                 true
             );
-            $keys = array_keys($tasks);
+            $keys = array_keys($candidates);
             if (array_key_exists($index, $keys)) {
                 $key = $keys[$index];
-                return $tasks[$key];
+                return $candidates[$key];
             } elseif (intval($index) === ($i - 1)) {
                 return false;
             }
             return [];
-        } elseif (sizeof($tasks) === 1) {
-            return array_pop($tasks);
+        } elseif (sizeof($candidates) === 1) {
+            return array_pop($candidates);
         }
-        // implicit third case: ticket does not yet exist in phabricator
+        // implicit third case: ticket does not yet exist in Phabricator
         return [];
     }
 }
