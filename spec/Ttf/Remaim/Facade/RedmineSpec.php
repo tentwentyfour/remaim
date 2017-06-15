@@ -180,11 +180,13 @@ class RedmineSpec extends ObjectBehavior
         $issue->all([
             'project_id' => 1,
             'limit' => 1024,
+            'sort' => 'id:asc',
         ])->willReturn(['issues' => []]);
 
         $issue->all([
             'project_id' => 1,
             'limit' => 1024,
+            'sort' => 'id:asc',
         ])->shouldBeCalled();
 
         $this->shouldThrow('\Ttf\Remaim\Exception\NoIssuesFoundException')->during('getIssuesForProject', [1]);
@@ -196,11 +198,13 @@ class RedmineSpec extends ObjectBehavior
         $issue->all([
             'project_id' => 1,
             'limit' => 1024,
+            'sort' => 'id:asc',
         ])->willReturn(false);
 
         $issue->all([
             'project_id' => 1,
             'limit' => 1024,
+            'sort' => 'id:asc',
         ])->shouldBeCalled();
         $this->shouldThrow('\Ttf\Remaim\Exception\NoIssuesFoundException')->during('getIssuesForProject', [1]);
     }
@@ -239,6 +243,7 @@ class RedmineSpec extends ObjectBehavior
         $issue->all([
             'project_id' => 1,
             'limit' => 1024,
+            'sort' => 'id:asc',
         ])->shouldBeCalled();
         $this->getIssuesForProject(1)->shouldReturn([
             'issues' => [
@@ -264,6 +269,4 @@ class RedmineSpec extends ObjectBehavior
             ],
         ]);
     }
-
-
 }
