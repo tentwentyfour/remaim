@@ -48,7 +48,14 @@ Running tests
 ./vendor/bin/phpspec run
 ```
 
+If you have `phpdbg` with 'phpdbg_start_oplog' support built-in, you can also run phpspec with it:
+
+```bash
+phpdbg -qrr vendor/bin/phpspec run
+```
+
 _Note:_ to see full diffs of failing tests, run phpspec with the _--verbose_ flag.
+
 
 Contributing
 ------------
@@ -67,5 +74,6 @@ Plus, finishing ALL the things we would like to see would really take a long tim
 Changelog
 ---------
 
+- 0.4.1 – release 0.4 with tests fixed
 - 0.4.0 – switched to `maniphest.search` to search for existing tickets and removed the need to force protocols for file downloads. Added support for parent_id journal entries.
 - 0.3.0 – introduces a new `Journal` class to handle the journal of actions on each Redmine issue. Each entry is handled separately and then converted into a Maniphest update.

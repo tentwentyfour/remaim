@@ -1,9 +1,9 @@
 extensions:
-  PhpSpecCodeCoverage\CodeCoverageExtension:
-    whitelist:
-      - src
-    format:
-      - text
-      - clover
-    output:
-      clover: build/clover.xml
+  # PhpSpecCodeCoverage\CodeCoverageExtension:
+  #   whitelist:
+  #     - src
+  #   format:
+  #     - text
+  #     - clover
+  #   output:
+  #     clover: build/clover.xml

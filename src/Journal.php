@@ -44,7 +44,7 @@ class Journal
         if ((!isset($entry['notes']) || empty($entry['notes']))
             && (!isset($entry['details']) || empty($entry['details']))
         ) {
-            continue;
+            return;
         }
 
         $timestamp = strtotime($entry['created_on']);
